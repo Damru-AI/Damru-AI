@@ -1,20 +1,20 @@
-/* ============================================================
-   DAMRU AI — Distillation cron (Phase 3)
+    /* ============================================================
+   DAMRU AI — Distillation cron (Phase 3, v2 high-yield)
    A "teacher AI" generates high-quality Q&A and stores them in
    Supabase (damru_knowledge) so Damru's brain grows automatically.
-   Runs on GitHub Actions (free). No npm dependencies (Node 20 fetch).
+   Improvements: more topics/run, robust JSON parsing, retries.
+   No npm dependencies (Node 20 global fetch).
    ============================================================ */
 
-const SUPABASE_URL  = process.env.SUPABASE_URL;
-const SUPABASE_KEY  = process.env.SUPABASE_KEY;      // anon or service_role
-const OPENROUTER_KEY = process.env.OPENROUTER_KEY;   // optional -> falls back to Pollinations
+const SUPABASE_URL   = process.env.SUPABASE_URL;
+const SUPABASE_KEY   = process.env.SUPABASE_KEY;     // anon or service_role
+const OPENROUTER_KEY = process.env.OPENROUTER_KEY;   // optional -> Pollinations fallback
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.error('Missing SUPABASE_URL / SUPABASE_KEY secrets.');
   process.exit(1);
 }
 
-/* Topics Damru should keep learning (intent, topic) */
 const TOPICS = [
   ['general', 'interesting general knowledge facts about the world'],
   ['general', 'science concepts explained simply (physics, chemistry, biology)'],
@@ -29,7 +29,11 @@ const TOPICS = [
   ['general', 'general awareness / current-affairs style questions'],
   ['general', 'everyday how-to and practical life advice'],
   ['general', 'technology, AI and computer fundamentals'],
-  ['general', 'health, nutrition and fitness basics']
+  ['general', 'health, nutrition and fitness basics'],
+  ['general', 'economics and finance basics for students'],
+  ['general', 'environment, ecology and climate questions'],
+  ['code',    'data structures and algorithms questions with code'],
+  ['math',    'class 10-12 level algebra, trigonometry and calculus problems']
 ];
 
 const FREE_MODELS = [
@@ -52,28 +56,42 @@ async function teacher(prompt) {
         const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
           method: 'POST',
           headers: { 'Authorization': 'Bearer ' + OPENROUTER_KEY, 'Content-Type': 'application/json', 'X-Title': 'Damru Distill' },
-          body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], temperature: 0.7, max_tokens: 2000 })
+          body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], temperature: 0.8, max_tokens: 2200 })
         });
         if (r.ok) { const j = await r.json(); const t = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; if (t) return t; }
-      } catch (e) { /* try next model */ }
+      } catch (e) { /* next model */ }
     }
   }
   try {
     const r = await fetch('https://text.pollinations.ai/openai', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'openai', messages: [{ role: 'user', content: prompt }], temperature: 0.7 })
+      body: JSON.stringify({ model: 'openai', messages: [{ role: 'user', content: prompt }], temperature: 0.8 })
     });
     if (r.ok) { const j = await r.json(); const t = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; if (t) return t; }
   } catch (e) {}
   return null;
 }
 
+/* Loose extractor: pulls question/answer objects even from messy output */
+function loosePairs(text) {
+  const out = [];
+  const re = /\{[^{}]*?"question"\s*:\s*"((?:[^"\\]|\\.)*)"[^{}]*?"answer"\s*:\s*"((?:[^"\\]|\\.)*)"[^{}]*?\}/g;
+  let m;
+  while ((m = re.exec(text))) {
+    try { out.push({ question: JSON.parse('"' + m[1] + '"'), answer: JSON.parse('"' + m[2] + '"') }); } catch (e) {}
+  }
+  return out;
+}
+
 function extractJSON(text) {
   if (!text) return [];
   let t = text.replace(/```json/gi, '```').replace(/```/g, '');
   const s = t.indexOf('['), e = t.lastIndexOf(']');
-  if (s < 0 || e < 0) return [];
-  try { const arr = JSON.parse(t.slice(s, e + 1)); return Array.isArray(arr) ? arr : []; } catch (err) { return []; }
+  if (s >= 0 && e > s) {
+    let body = t.slice(s, e + 1).replace(/,(\s*[\]}])/g, '$1'); // strip trailing commas
+    try { const arr = JSON.parse(body); if (Array.isArray(arr) && arr.length) return arr; } catch (err) {}
+  }
+  return loosePairs(t); // fallback
 }
 
 async function exists(question) {
@@ -98,16 +116,19 @@ async function saveQA(question, answer, intent) {
 }
 
 (async () => {
-  const topics = pick(TOPICS, 3);
+  const topics = pick(TOPICS, 5);
   let total = 0;
   for (const [intent, topic] of topics) {
     const prompt =
       'You are an expert teacher creating training data for an AI assistant. ' +
-      'Generate 5 high-quality, diverse and factually accurate Q&A pairs about: ' + topic + '. ' +
+      'Generate 6 high-quality, diverse and factually accurate Q&A pairs about: ' + topic + '. ' +
       'Each answer must be correct, clear and self-contained (3-8 sentences; include steps or code where useful). ' +
-      'Return ONLY a valid JSON array like [{"question":"...","answer":"..."}] with no extra text.';
-    const out = await teacher(prompt);
-    const pairs = extractJSON(out);
+      'Return ONLY a valid JSON array, exactly like: [{"question":"...","answer":"..."}]. No markdown, no extra text.';
+    let pairs = [];
+    for (let attempt = 0; attempt < 2 && pairs.length === 0; attempt++) {
+      const out = await teacher(prompt);
+      pairs = extractJSON(out);
+    }
     let saved = 0;
     for (const p of pairs) {
       if (p && p.question && p.answer && String(p.answer).length > 40) {
