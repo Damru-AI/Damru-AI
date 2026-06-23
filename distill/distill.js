@@ -28,8 +28,27 @@ const TOPICS = [
   ['general', 'technology, AI and computer fundamentals'],
   ['general', 'health, nutrition and fitness basics'],
   ['general', 'environment, ecology and climate questions'],
-  ['code',    'common programming questions in Python and JavaScript with code'],
-  ['code',    'data structures and algorithms questions with code'],
+  // --- CODING (heavy block — Damru ko full coder banane ke liye) ---
+  ['code',    'Python basics with runnable code examples (variables, types, lists, dicts, sets, tuples, slicing, loops, conditions, functions, modules, file I/O)'],
+  ['code',    'Python intermediate with code (comprehensions, decorators, generators, iterators, context managers, type hints, error handling, dataclasses, OOP, inheritance, dunder methods)'],
+  ['code',    'Python advanced with real code (async/await, multiprocessing vs threading, regex, JSON/CSV/SQLite, requests, pathlib, virtualenv, pip, common libraries like numpy/pandas/matplotlib basics)'],
+  ['code',    'JavaScript / TypeScript fundamentals with code (var/let/const, scope, hoisting, closures, arrays, objects, destructuring, spread, optional chaining, template literals, modules, classes)'],
+  ['code',    'modern JavaScript with code (Promises, async/await, fetch API, error handling, event loop, map/filter/reduce, JSON, DOM basics, ES2020+ features)'],
+  ['code',    'data structures with implementations in Python and JavaScript (arrays, linked lists, stacks, queues, hash maps, trees, BST, heaps, graphs, tries) and when to use each'],
+  ['code',    'classic algorithms with code and complexity analysis (sorting: quicksort/mergesort/heapsort, searching: binary search, two-pointer, sliding window, BFS, DFS, Dijkstra, recursion, backtracking)'],
+  ['code',    'dynamic programming patterns with code (memoization, tabulation, 0/1 knapsack, LIS, LCS, coin change, edit distance, matrix DP, interval DP) — full step by step'],
+  ['code',    'common LeetCode-style coding interview questions with optimized Python solutions and clear explanation of approach'],
+  ['code',    'SQL queries and database concepts with examples (SELECT, JOIN, GROUP BY, window functions, subqueries, indexes, normalization, transactions, common pitfalls)'],
+  ['code',    'debugging strategies and common bugs across Python/JS/SQL — show the buggy code, explain why it breaks, then show the fix'],
+  ['code',    'clean code principles, design patterns and refactoring techniques with before/after code snippets (singleton, factory, observer, strategy, MVC, DRY, SOLID)'],
+  ['code',    'web development basics with code (HTML5, CSS flexbox/grid, semantic tags, responsive design, accessibility, simple JS interactivity)'],
+  ['code',    'Node.js / Express backend basics with code (routing, middleware, REST APIs, async handlers, error handling, environment variables, file system)'],
+  ['code',    'React fundamentals with code (functional components, JSX, props, state, useEffect, useState, useMemo, conditional rendering, lists with keys, forms, event handling)'],
+  ['code',    'Git and GitHub workflows explained with command examples (clone, branch, commit, push, pull, merge, rebase, conflict resolve, PR workflow, .gitignore)'],
+  ['code',    'shell / bash basics for developers with command examples (pipes, grep, sed, awk, find, cron, env vars, scripting)'],
+  ['code',    'API integration patterns with code (REST, JSON, auth headers, retry, rate limit handling, error responses)'],
+  ['code',    'regex patterns with real examples (email, phone, URL, password validation, capturing groups, lookahead/lookbehind) in Python and JS'],
+  ['code',    'small but useful coding projects with full working code (URL shortener, todo list, calculator, weather app fetch, simple chatbot, file organizer script)'],
   // --- Ethics, values & logic (persona builders) ---
   ['general', 'ethics, duty and life lessons from the Bhagavad Gita applied to real-life situations like handling failure, stress, focus and decision-making, presented respectfully as practical wisdom (not as religious authority)'],
   ['general', 'moral and logical lessons from Panchatantra and Hitopadesha stories, with the takeaway clearly explained'],
@@ -130,12 +149,12 @@ async function saveQA(question, answer, intent) {
 }
 
 (async () => {
-  const topics = pick(TOPICS, 5);
+  const topics = pick(TOPICS, 8);
   let total = 0;
   for (const [intent, topic] of topics) {
     const prompt =
       'You are an expert teacher creating training data for an AI assistant. ' +
-      'Generate 6 high-quality, diverse and factually accurate Q&A pairs about: ' + topic + '. ' +
+      'Generate 7 high-quality, diverse and factually accurate Q&A pairs about: ' + topic + '. ' +
       'Each answer must be correct, clear and self-contained (3-8 sentences; include steps or code where useful). ' +
       'Return ONLY a valid JSON array, exactly like: [{"question":"...","answer":"..."}]. No markdown, no extra text.';
     let pairs = [];
