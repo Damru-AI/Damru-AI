@@ -14,6 +14,7 @@
    ============================================================ */
 
 const fs = require('fs');
+const { execFileSync } = require('child_process');
 
 const SUPABASE_URL   = process.env.SUPABASE_URL;
 const SUPABASE_KEY   = process.env.SUPABASE_KEY;
@@ -121,6 +122,38 @@ async function exists(question) {
   } catch (e) { return false; }
 }
 
+/* Strip HTML/XML/SVG tags & entities; auto-detects markup files */
+function sanitizeText(raw) {
+  let t = raw || '';
+  // remove script/style blocks fully
+  t = t.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ');
+  // strip HTML/XML/SVG comments
+  t = t.replace(/<!--[\s\S]*?-->/g, ' ');
+  // strip DOCTYPE
+  t = t.replace(/<!DOCTYPE[^>]*>/gi, ' ');
+  // count tags BEFORE stripping to know if it was markup
+  const tagCount = (t.match(/<[a-zA-Z!\/][^>]*>/g) || []).length;
+  const isMarkup = tagCount > 20;
+  if (isMarkup) console.log('[sanitize] Detected markup file (' + tagCount + ' tags). Stripping HTML/SVG/XML...');
+  // strip all remaining tags
+  t = t.replace(/<[^>]+>/g, ' ');
+  // decode common entities
+  t = t.replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&quot;/gi, '"').replace(/&#39;/gi, "'").replace(/&[a-z]+;/gi, ' ').replace(/&#\d+;/g, ' ');
+  // collapse whitespace
+  t = t.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n');
+  return t.trim();
+}
+
+/* True if a chunk still looks like markup or junk (after sanitize) */
+function isJunkChunk(chunk) {
+  if (!chunk || chunk.length < 200) return true;
+  const letters = (chunk.match(/[A-Za-z\u0900-\u097F]/g) || []).length;
+  if (letters / chunk.length < 0.55) return true; // too few real letters
+  const codey = (chunk.match(/[{}<>\/\\;=]/g) || []).length;
+  if (codey / chunk.length > 0.08) return true; // too many code-like chars
+  return false;
+}
+
 async function saveQA(question, answer, intent) {
   try {
     const r = await fetch(SUPABASE_URL + '/rest/v1/damru_knowledge', {
@@ -132,10 +165,40 @@ async function saveQA(question, answer, intent) {
   } catch (e) { return false; }
 }
 
-(async () => {
-  const raw = fs.readFileSync(FILE, 'utf8');
-  let chunks = chunkText(raw);
-  console.log('File: ' + FILE + ' | total chunks: ' + chunks.length + ' | processing up to ' + MAX_CHUNKS);
+/* Read a single source file. Supports .txt/.md/.pdf (uses pdftotext for PDFs) */
+function readSource(filePath) {
+  if (/\.pdf$/i.test(filePath)) {
+    try {
+      console.log('[pdf] Converting: ' + filePath);
+      return execFileSync('pdftotext', [filePath, '-'], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+    } catch (e) { console.error('[pdf] pdftotext failed for ' + filePath + ': ' + e.message); return ''; }
+  }
+  return fs.readFileSync(filePath, 'utf8');
+}
+
+/* List files: accepts a single file OR a folder (then scans for .txt/.md/.pdf) */
+function listFiles(target) {
+  const st = fs.statSync(target);
+  if (st.isFile()) return [target];
+  if (st.isDirectory()) {
+    const base = target.replace(/\/$/, '');
+    return fs.readdirSync(base)
+      .filter(n => /\.(txt|md|pdf)$/i.test(n))
+      .map(n => base + '/' + n)
+      .sort();
+  }
+  return [];
+}
+
+async function processFile(path) {
+  console.log('\n=== File: ' + path + ' ===');
+  const raw = readSource(path);
+  if (!raw) return 0;
+  const cleaned = sanitizeText(raw);
+  console.log('Raw chars: ' + raw.length + ' | cleaned chars: ' + cleaned.length);
+  let chunks = chunkText(cleaned).filter(c => !isJunkChunk(c));
+  console.log('Usable chunks: ' + chunks.length + ' (cap ' + MAX_CHUNKS + ')');
+  if (chunks.length === 0) return 0;
   if (chunks.length > MAX_CHUNKS) chunks = chunks.slice(0, MAX_CHUNKS);
 
   let total = 0;
@@ -164,5 +227,16 @@ async function saveQA(question, answer, intent) {
     }
     console.log('Chunk ' + (i + 1) + '/' + chunks.length + ' -> saved ' + saved + ' Q&A');
   }
-  console.log('DONE. Total new Q&A saved from ' + FILE + ': ' + total);
+  console.log('Subtotal for ' + path + ': ' + total + ' Q&A');
+  return total;
+}
+
+(async () => {
+  let targets = [];
+  try { targets = listFiles(FILE); } catch (e) { console.error('Path error: ' + e.message); process.exit(1); }
+  if (!targets.length) { console.error('No usable files at: ' + FILE); process.exit(1); }
+  console.log('Targets: ' + targets.length + ' file(s) -> ' + targets.join(', '));
+  let grand = 0;
+  for (const p of targets) grand += await processFile(p);
+  console.log('\nGRAND TOTAL new Q&A saved: ' + grand);
 })();
