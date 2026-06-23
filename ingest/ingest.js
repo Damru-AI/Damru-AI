@@ -29,7 +29,7 @@ const FILE       = process.argv[2] || 'ingest/sources/source.txt';
 const INTENT     = process.argv[3] || 'general';
 const MAX_CHUNKS = parseInt(process.argv[4] || '60', 10);
 const CHUNK_SIZE = 1500;   // characters per chunk
-const QA_PER     = 4;      // Q&A pairs requested per chunk
+const QA_PER     = 6;      // Q&A pairs requested per chunk
 
 if (!fs.existsSync(FILE)) {
   console.error('File not found: ' + FILE);
