@@ -1,4 +1,4 @@
-    /* ============================================================
+/* ============================================================
    DAMRU AI — Distillation cron (Phase 3, v2 high-yield)
    A "teacher AI" generates high-quality Q&A and stores them in
    Supabase (damru_knowledge) so Damru's brain grows automatically.
@@ -17,9 +17,6 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 
 const TOPICS = [
   ['general', 'interesting general knowledge facts about the world'],
-  ['general', 'science concepts explained simply (physics, chemistry, biology)'],
-  ['math',    'useful mathematics problems with full step-by-step solutions'],
-  ['code',    'common programming questions in Python and JavaScript with code'],
   ['exam',    'Indian competitive exam questions (RAS, SSC, UPSC, CET, REET) with answers'],
   ['general', 'Indian polity and constitution questions and answers'],
   ['general', 'geography of India and the world'],
@@ -30,10 +27,27 @@ const TOPICS = [
   ['general', 'everyday how-to and practical life advice'],
   ['general', 'technology, AI and computer fundamentals'],
   ['general', 'health, nutrition and fitness basics'],
-  ['general', 'economics and finance basics for students'],
   ['general', 'environment, ecology and climate questions'],
+  ['code',    'common programming questions in Python and JavaScript with code'],
   ['code',    'data structures and algorithms questions with code'],
-  ['math',    'class 10-12 level algebra, trigonometry and calculus problems']
+  // --- Ethics, values & logic (persona builders) ---
+  ['general', 'ethics, duty and life lessons from the Bhagavad Gita applied to real-life situations like handling failure, stress, focus and decision-making, presented respectfully as practical wisdom (not as religious authority)'],
+  ['general', 'moral and logical lessons from Panchatantra and Hitopadesha stories, with the takeaway clearly explained'],
+  ['general', 'world philosophy and ethics: compare different viewpoints fairly and give a balanced, practical conclusion'],
+  ['general', 'critical thinking, reasoning and good decision-making explained with real-life examples'],
+  // --- Hard sciences ---
+  ['general', 'physics concepts and numerical problems with step-by-step solutions (mechanics, electricity, optics, thermodynamics, modern physics)'],
+  ['general', 'chemistry concepts and reactions explained with examples (physical, organic, inorganic)'],
+  ['general', 'biology concepts explained clearly (human body, cells, genetics, ecology, evolution)'],
+  ['general', 'astronomy and the universe explained simply (stars, planets, galaxies, black holes)'],
+  ['general', 'aerospace and space science explained clearly (rockets, orbits, aerodynamics, propulsion, famous space missions)'],
+  ['general', 'engineering fundamentals explained simply (mechanical, electrical, civil, aerospace, computer)'],
+  ['general', 'real-life applications of science: how everyday things and technology actually work'],
+  // --- Maths & economics ---
+  ['math',    'class 10-12 level algebra, trigonometry and calculus problems with full solutions'],
+  ['math',    'advanced mathematics problems with full step-by-step solutions (calculus, linear algebra, probability, statistics)'],
+  ['general', 'economics and personal finance concepts for students explained with examples'],
+  ['general', 'business, entrepreneurship and money management basics explained simply']
 ];
 
 const FREE_MODELS = [
