@@ -166,7 +166,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 
 <aside class="sb" id="sb">
   <div class="sb-top">
-    <div class="brand"><span class="burst">✳</span> Damru</div>
+    <div class="brand"><span class="burst">🐕</span> Damru</div>
     <button class="ico" onclick="closeSb()" title="Close" style="display:none" id="sb-close">«</button>
   </div>
   <button class="newbtn" onclick="newChat()"><span class="ic">✎</span> New chat</button>
@@ -441,7 +441,7 @@ const CHIPS = ''
 function greeting(){ const h=new Date().getHours(); if(h<5) return 'Still up?'; if(h<12) return 'Good morning'; if(h<17) return 'Good afternoon'; if(h<21) return 'Good evening'; return 'Good night'; }
 function welcomeHTML(){
   return '<div class="welcome" id="welcome">'
-    + '<div class="wc-burst">✳</div>'
+    + '<div class="wc-burst">🐕</div>'
     + '<div class="wc-hi">'+greeting()+'</div>'
     + '<div class="wc-sub">Main Damru hoon 🐕 — coding, maths, science, writing, GK ya exam prep, kuch bhi poochho. Koi bhi photo ya screenshot bhejo, main padhke samjhaata hoon aur solution deta hoon. Aapki bhasha me jawab.</div>'
     + '<div class="chips" id="chips">'+CHIPS+'</div>'
