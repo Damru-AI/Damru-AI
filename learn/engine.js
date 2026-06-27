@@ -6,11 +6,13 @@
      2) wikiLearner    — random Wikipedia articles (general knowledge)
      3) journalLearner — arXiv abstracts (science journals + maths)
      4) mathLearner    — generates & SOLVES advanced maths problems
-   Each learner distills raw material into clean Q&A via a teacher AI
-   and stores it in Supabase (damru_knowledge) — so the knowledge
-   becomes DAMRU'S OWN brain; it does not stay inside other models.
+   Plus it computes a SEMANTIC EMBEDDING for every new row and
+   gradually BACKFILLS embeddings for older rows, so the browser can
+   do meaning-based (semantic) retrieval via Supabase pgvector.
+   Knowledge becomes DAMRU'S OWN brain (Supabase damru_knowledge).
    Runs RUN_MINUTES (default 330 = 5.5h) then exits; the workflow
-   re-dispatches itself => near-24/7 loop. No npm deps (Node 20+).
+   re-dispatches itself => near-24/7 loop.
+   Deps: @xenova/transformers (installed by the workflow).
    ============================================================ */
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -28,8 +30,19 @@ const sleep = function(ms){ return new Promise(function(r){ setTimeout(r,ms); })
 function ws(x){ return (x||'').replace(/\s+/g,' ').trim(); }
 function between(s,open,close){ var i=s.indexOf(open); if(i<0) return null; var j=s.indexOf(close,i+open.length); if(j<0) return null; return s.slice(i+open.length,j); }
 
-/* Teacher: Pollinations primary (keyless, generous) -> OpenRouter booster.
-   Pollinations first to protect OpenRouter's free daily quota under high frequency. */
+/* ---- Embeddings (transformers.js, all-MiniLM-L6-v2, 384-dim) ---- */
+var _ex=null, _exLoading=null;
+async function getEx(){
+  if(_ex) return _ex;
+  if(!_exLoading){ _exLoading=(async function(){ const mod=await import('@xenova/transformers'); mod.env.allowLocalModels=false; _ex=await mod.pipeline('feature-extraction','Xenova/all-MiniLM-L6-v2'); return _ex; })(); }
+  return _exLoading;
+}
+async function embed(t){
+  try{ const ex=await getEx(); const out=await ex(String(t||'').slice(0,512),{pooling:'mean',normalize:true}); return '['+Array.from(out.data).join(',')+']'; }
+  catch(e){ return null; }
+}
+
+/* Teacher: Pollinations primary (keyless, generous) -> OpenRouter booster. */
 async function teacher(prompt,temp){
   temp = (temp===undefined?0.6:temp);
   try{
@@ -68,8 +81,11 @@ async function exists(question){
 
 async function saveQA(question,answer,intent){
   if(!question||!answer) return false;
+  const emb = await embed(question+' '+answer);
   try{
-    const r = await fetch(SUPABASE_URL+'/rest/v1/damru_knowledge',{ method:'POST', headers:{ apikey:SUPABASE_KEY, Authorization:'Bearer '+SUPABASE_KEY, 'Content-Type':'application/json', Prefer:'return=minimal' }, body: JSON.stringify({ question:question, answer:answer, intent:intent||'general', lang:'en' }) });
+    const body = { question:question, answer:answer, intent:intent||'general', lang:'en' };
+    if(emb) body.embedding = emb;
+    const r = await fetch(SUPABASE_URL+'/rest/v1/damru_knowledge',{ method:'POST', headers:{ apikey:SUPABASE_KEY, Authorization:'Bearer '+SUPABASE_KEY, 'Content-Type':'application/json', Prefer:'return=minimal' }, body: JSON.stringify(body) });
     return r.ok;
   }catch(e){ return false; }
 }
@@ -84,6 +100,23 @@ async function ingestPairs(pairs,intent){
     if(await saveQA(q,a,intent)) saved++;
   }
   return saved;
+}
+
+/* ---- Backfill embeddings for older rows that have none ---- */
+async function backfillEmbeddings(limit){
+  try{
+    const u = SUPABASE_URL+'/rest/v1/damru_knowledge?select=id,question,answer&embedding=is.null&limit='+(limit||8);
+    const r = await fetch(u,{ headers:{ apikey:SUPABASE_KEY, Authorization:'Bearer '+SUPABASE_KEY } });
+    if(!r.ok) return 0; const rows = await r.json(); if(!Array.isArray(rows)||!rows.length) return 0;
+    var n = 0;
+    for(const row of rows){
+      const emb = await embed((row.question||'')+' '+(row.answer||''));
+      if(!emb) continue;
+      const up = await fetch(SUPABASE_URL+'/rest/v1/damru_knowledge?id=eq.'+row.id,{ method:'PATCH', headers:{ apikey:SUPABASE_KEY, Authorization:'Bearer '+SUPABASE_KEY, 'Content-Type':'application/json', Prefer:'return=minimal' }, body: JSON.stringify({ embedding:emb }) });
+      if(up.ok) n++;
+    }
+    return n;
+  }catch(e){ return 0; }
 }
 
 /* ---- Learner 1: progressive book reading (cursor advances each cycle) ---- */
@@ -166,12 +199,14 @@ async function cycle(n){
   const results = await Promise.allSettled([ bookLearner(), wikiLearner(), journalLearner(), mathLearner() ]);
   const got = results.map(function(r){ return r.status==='fulfilled'?r.value:0; });
   const total = got.reduce(function(x,y){ return x+y; },0);
-  console.log('[cycle '+n+'] +'+total+' learned (book:'+got[0]+' wiki:'+got[1]+' arxiv:'+got[2]+' math:'+got[3]+') in '+((Date.now()-t0)/1000).toFixed(1)+'s');
+  const bf = await backfillEmbeddings(8);
+  console.log('[cycle '+n+'] +'+total+' learned (book:'+got[0]+' wiki:'+got[1]+' arxiv:'+got[2]+' math:'+got[3]+') +'+bf+' embed-backfill in '+((Date.now()-t0)/1000).toFixed(1)+'s');
   return total;
 }
 
 async function main(){
   console.log('=== Damru Learning Engine START | cycle='+(CYCLE_MS/1000)+'s run='+RUN_MINUTES+'m ===');
+  try{ await getEx(); console.log('embeddings model ready'); }catch(e){ console.log('embeddings model load failed (will retry per-call):',e&&e.message); }
   const deadline = Date.now()+RUN_MINUTES*60*1000;
   var n = 0, grand = 0;
   while(Date.now()<deadline){
