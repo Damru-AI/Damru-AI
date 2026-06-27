@@ -184,6 +184,15 @@ const FREE_MODELS = [
   'google/gemini-2.0-flash-exp:free',
   'qwen/qwen-2.5-72b-instruct:free'
 ];
+/* Intent-aware best-model routing (agentic-flow style) — har field ka best model */
+const MODEL_ROUTES = {
+  code:    ['qwen/qwen-2.5-coder-32b-instruct:free','deepseek/deepseek-chat-v3-0324:free','qwen/qwen-2.5-72b-instruct:free','meta-llama/llama-3.3-70b-instruct:free'],
+  math:    ['deepseek/deepseek-chat-v3-0324:free','qwen/qwen-2.5-72b-instruct:free','meta-llama/llama-3.3-70b-instruct:free'],
+  exam:    ['google/gemini-2.0-flash-exp:free','meta-llama/llama-3.3-70b-instruct:free','deepseek/deepseek-chat-v3-0324:free'],
+  general: ['google/gemini-2.0-flash-exp:free','deepseek/deepseek-chat-v3-0324:free','meta-llama/llama-3.3-70b-instruct:free','qwen/qwen-2.5-72b-instruct:free'],
+  creative:['meta-llama/llama-3.3-70b-instruct:free','google/gemini-2.0-flash-exp:free','deepseek/deepseek-chat-v3-0324:free'],
+  chat:    ['google/gemini-2.0-flash-exp:free','meta-llama/llama-3.3-70b-instruct:free']
+};
 let OR_KEY = localStorage.getItem('damru_or_key') || '';
 
 /* ---- Damru Brain (Phase 2: memory + knowledge base) ---- */
@@ -194,6 +203,9 @@ const SB_H = { apikey: SB_KEY, Authorization: 'Bearer '+SB_KEY, 'Content-Type':'
 /* ---- State ---- */
 let history = [];        // {role, content}
 let busy = false;
+let pendingLearn = null;
+const savedQs = new Set();
+const NEG_RE = /\b(wrong|incorrect|not correct|galat|galt|nahi|nahin|bekaar|bekar|useless|theek nahi|samajh nahi|fix this|thats wrong|not right)\b|गलत|नहीं/i;
 try { history = JSON.parse(localStorage.getItem('damru_history') || '[]'); } catch(e){ history = []; }
 
 /* ============================================================
@@ -259,11 +271,21 @@ async function openrouter(model,messages,maxTokens,temp){
   if(!res.ok){ const t=await res.text(); throw new Error('OR '+res.status+' '+t); }
   const d=await res.json(); return d?.choices?.[0]?.message?.content||'';
 }
-async function engine(messages,maxTokens,temp){
+async function engine(messages,maxTokens,temp,intent){
   let lastErr;
+  const routed = MODEL_ROUTES[intent] || FREE_MODELS;
+  const heavy = (intent==='code'||intent==='math');
+  // Heavy reasoning (code/math): prefer strong OpenRouter models first when key is set
+  if(heavy && OR_KEY){
+    for(const m of routed){
+      try{ const o=await openrouter(m,messages,maxTokens,temp); if(o&&o.trim()) return o; }catch(e){ lastErr=e; }
+    }
+  }
+  // Pollinations (keyless, fast): primary for light tasks, fallback for heavy
   try{ const p=await pollinations(messages,maxTokens,temp); if(p&&p.trim()) return p; }catch(e){ lastErr=e; }
+  // OpenRouter routed models (best-for-task): primary for light, fallback otherwise
   if(OR_KEY){
-    for(const m of FREE_MODELS){
+    for(const m of routed){
       try{ const o=await openrouter(m,messages,maxTokens,temp); if(o&&o.trim()) return o; }catch(e){ lastErr=e; }
     }
   }
@@ -349,12 +371,15 @@ function saveSettings(){ OR_KEY=document.getElementById('or-key').value.trim(); 
    DAMRU BRAIN — Phase 2: memory + knowledge base (Supabase)
    ============================================================ */
 async function kbSearch(q){
-  try{
-    const u=SB_URL+'/rest/v1/damru_knowledge?select=question,answer,upvotes&fts=plfts(simple).'+encodeURIComponent(q)+'&order=upvotes.desc&limit=2';
-    const r=await fetch(u,{headers:SB_H});
-    if(!r.ok) return [];
-    return await r.json();
-  }catch(e){ return []; }
+  // Pillar 1: stronger retrieval — websearch FTS first, phrase FTS fallback, top 4
+  const base=SB_URL+'/rest/v1/damru_knowledge?select=question,answer,upvotes&order=upvotes.desc&limit=4&fts=';
+  for(const op of ['wfts(simple).','plfts(simple).']){
+    try{
+      const r=await fetch(base+op+encodeURIComponent(q),{headers:SB_H});
+      if(r.ok){ const j=await r.json(); if(Array.isArray(j)&&j.length) return j; }
+    }catch(e){}
+  }
+  return [];
 }
 function kbSave(q,ans,intent){
   if(!q||!ans) return;
@@ -367,10 +392,19 @@ function _fbLock(a){ a.querySelectorAll('button').forEach(x=>{ if(x.title==='Goo
 function fbUp(btn){
   const a=btn.closest('.acts'); const q=a.dataset.q, ans=a.dataset.raw, it=a.dataset.intent;
   if(!q){ toast('Cannot save this'); return; }
-  kbSave(q,ans,it); fbLog(q,ans,'up'); _fbLock(a); btn.textContent='✅'; toast('Saved to memory ✓');
+  kbSave(q,ans,it); fbLog(q,ans,'up'); savedQs.add((q||'').trim().toLowerCase()); _fbLock(a); btn.textContent='✅'; toast('Saved to memory ✓');
 }
 function fbDown(btn){
   const a=btn.closest('.acts'); fbLog(a.dataset.q,a.dataset.raw,'down'); _fbLock(a); btn.textContent='✓'; toast('Thanks for the feedback');
+}
+/* Auto-learning: a continued, non-negative conversation = useful answer */
+function autoLearn(ex){
+  if(!ex||!ex.q||!ex.ans) return;
+  if(ex.intent==='chat') return;
+  if(ex.ans.length<80) return;
+  const key=ex.q.trim().toLowerCase();
+  if(savedQs.has(key)) return;
+  savedQs.add(key); kbSave(ex.q,ex.ans,ex.intent);
 }
 
 /* ============================================================
@@ -380,6 +414,12 @@ async function send(){
   if(busy) return;
   const inp=document.getElementById('inp'); const msg=inp.value.trim();
   if(!msg) return;
+  /* implicit learning from the previous exchange */
+  if(pendingLearn){
+    if(NEG_RE.test(msg)){ fbLog(pendingLearn.q,pendingLearn.ans,'down'); }
+    else { autoLearn(pendingLearn); }
+    pendingLearn=null;
+  }
   hideWelcome();
   inp.value=''; autoH(inp);
   addMsg('user', esc(msg).replace(/\n/g,'<br>'));
@@ -401,14 +441,15 @@ async function send(){
       }
       const ctx = history.slice(-10);
       const messages=[{role:'system',content:sys}, ...ctx, {role:'user',content:msg}];
-      reply = await engine(messages, TOKENS[intent], TEMP[intent]);
+      reply = await engine(messages, TOKENS[intent], TEMP[intent], intent);
       cacheSet(msg,intent,reply);
     }
     tEl.remove();
     addMsg('ai', '<span class="intent-tag">'+intent+'</span>'+renderMD(reply), reply, msg, intent);
-    history.push({role:'user',content:msg},{role:'assistant',content:reply});
+    history.push({role:'user',content:msg},{role:'assistant',content:reply,q:msg,intent:intent});
     if(history.length>24) history=history.slice(-20);
     localStorage.setItem('damru_history',JSON.stringify(history));
+    pendingLearn = {q:msg, ans:reply, intent:intent};
   }catch(err){
     tEl.remove();
     addMsg('ai','⚠️ '+esc(err.message||'Connection issue. Please try again.'));
@@ -417,13 +458,24 @@ async function send(){
   inp.focus();
 }
 
+/* Live brain size — proof of continuous 24/7 learning (reads the growing brain) */
+async function brainCount(){
+  try{
+    const r=await fetch(SB_URL+'/rest/v1/damru_knowledge?select=id',{headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,Prefer:'count=exact',Range:'0-0'}});
+    const cr=r.headers.get('content-range')||''; const n=parseInt((cr.split('/')[1]||'0'),10);
+    if(n>0){ const sub=document.getElementById('hd-sub'); if(sub) sub.innerHTML='\ud83e\udde0 '+n.toLocaleString()+' learned \u00b7 learning 24/7'; }
+  }catch(e){}
+}
+brainCount(); setInterval(brainCount,60000);
+
 /* Restore previous chat */
 (function restore(){
   if(history.length){
     hideWelcome();
+    let lastUser='';
     for(const h of history){
-      if(h.role==='user') addMsg('user', esc(h.content).replace(/\n/g,'<br>'));
-      else addMsg('ai', renderMD(h.content), h.content);
+      if(h.role==='user'){ lastUser=h.content; addMsg('user', esc(h.content).replace(/\n/g,'<br>')); }
+      else addMsg('ai', renderMD(h.content), h.content, h.q||lastUser, h.intent||'');
     }
   }
 })();
