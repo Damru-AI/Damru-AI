@@ -1,0 +1,37 @@
+name: Damru Learning Engine (continuous)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */6 * * *'   # safety net: heal the chain if it ever breaks
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: damru-learn
+  cancel-in-progress: false
+
+jobs:
+  learn:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run Damru learning engine (~5.5h, learns every 60s)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          OPENROUTER_KEY: ${{ secrets.OPENROUTER_KEY }}
+          CYCLE_MS: '60000'
+          RUN_MINUTES: '330'
+        run: node learn/engine.js
+      - name: Re-dispatch self (continuous loop)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run learn.yml -R "$GITHUB_REPOSITORY" || true
