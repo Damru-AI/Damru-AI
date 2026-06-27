@@ -118,6 +118,15 @@ body{font-family:'Inter',system-ui,sans-serif;background:radial-gradient(1200px 
 .mb-cancel{background:var(--panel);color:var(--text2);border:1px solid var(--border2)}
 .toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--border2);color:var(--text);padding:10px 18px;border-radius:12px;font-size:0.82rem;z-index:60;opacity:0;transition:opacity .3s;pointer-events:none;box-shadow:0 8px 24px rgba(0,0,0,0.4)}
 .toast.on{opacity:1}
+.att{width:40px;height:40px;border-radius:13px;background:var(--panel);border:1px solid var(--border2);color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1.15rem;flex-shrink:0;transition:all .18s}
+.att:hover{background:var(--panel2);color:var(--text)}
+.img-wrap{margin-top:4px}
+.gen-img{max-width:100%;border-radius:14px;border:1px solid var(--border2);display:block}
+.up-img{max-width:210px;border-radius:12px;display:block}
+.img-load{display:flex;align-items:center;gap:8px;color:var(--text2);font-size:0.85rem;padding:8px 0}
+.img-acts{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.img-acts .act{width:auto;padding:5px 12px;border:1px solid var(--border2);border-radius:9px;text-decoration:none;color:var(--text2);font-size:0.78rem;display:inline-flex;align-items:center;gap:5px;background:transparent;cursor:pointer}
+.img-acts .act:hover{background:var(--panel2);color:var(--text)}
 </style>
 </head>
 <body>
@@ -150,6 +159,8 @@ body{font-family:'Inter',system-ui,sans-serif;background:radial-gradient(1200px 
 
   <div class="inp-wrap">
     <div class="inp-box">
+      <button class="att" onclick="document.getElementById('imgfile').click()" title="Read an image (photo se padho)">📷</button>
+      <input type="file" id="imgfile" accept="image/*" style="display:none" onchange="onImgPick(event)"/>
       <textarea class="inp" id="inp" rows="1" placeholder="Ask Damru anything…" oninput="autoH(this)" onkeydown="keyHandler(event)"></textarea>
       <button class="send" id="send" onclick="send()" title="Send">➤</button>
     </div>
@@ -213,6 +224,7 @@ try { history = JSON.parse(localStorage.getItem('damru_history') || '[]'); } cat
    ============================================================ */
 function detectIntent(msg){
   const m = ' ' + msg.toLowerCase() + ' ';
+  if(/\b(wallpaper|logo|poster)\b|(image|images|photo|picture|pic|tasveer|tasvir|chitra|drawing|sketch)[^.?!]{0,30}(banao|bana do|bana de|draw|generate|create|design|chahiye)|(banao|bana do|draw|generate|create|design)[^.?!]{0,30}(image|photo|picture|tasveer|chitra|wallpaper|logo|poster|drawing)/.test(m)) return 'imagegen';
   if(/```|\b(code|function|program|script|debug|error|bug|algorithm|api|regex|sql query|html|css|javascript|python|java|c\+\+|react|node)\b|code likho|program likho/.test(m)) return 'code';
   if(/\b(solve|calculate|equation|integral|derivative|probability|percentage|ratio|trigonometry|geometry|algebra)\b|\d+\s*[\+\-\*\/x÷]\s*\d+|hisab|ganit|sawaal solve|step by step solve/.test(m)) return 'math';
   if(/\b(essay|poem|story|letter|application|speech|paragraph|nibandh|kavita|kahani|patra|shayari|slogan)\b|likh kar do|likhkar do|likh do/.test(m)) return 'creative';
@@ -371,7 +383,8 @@ function saveSettings(){ OR_KEY=document.getElementById('or-key').value.trim(); 
    DAMRU BRAIN — Phase 2: memory + knowledge base (Supabase)
    ============================================================ */
 async function kbSearch(q){
-  // Pillar 1: stronger retrieval — websearch FTS first, phrase FTS fallback, top 4
+  // Pillar 1: SEMANTIC (meaning-based) first, then keyword FTS fallback
+  try{ const sem=await semanticSearch(q); if(sem&&sem.length) return sem; }catch(e){}
   const base=SB_URL+'/rest/v1/damru_knowledge?select=question,answer,upvotes&order=upvotes.desc&limit=4&fts=';
   for(const op of ['wfts(simple).','plfts(simple).']){
     try{
@@ -431,6 +444,8 @@ async function send(){
   tEl.innerHTML='<div class="msg-av">🐕</div><div class="bubble"><span class="intent-tag">'+intent+'</span><div class="typing"><span></span><span></span><span></span></div></div>';
   chatEl.appendChild(tEl); scrollDown();
 
+  if(intent==='imagegen'){ try{ await handleImage(msg,tEl); }catch(e){ tEl.remove(); addMsg('ai','⚠️ Image banane me dikkat aayi.'); } busy=false; document.getElementById('send').disabled=false; inp.focus(); return; }
+
   try{
     let reply = cacheGet(msg,intent);
     if(!reply){
@@ -456,6 +471,94 @@ async function send(){
   }
   busy=false; document.getElementById('send').disabled=false;
   inp.focus();
+}
+
+/* ============================================================
+   PILLAR 1+: SEMANTIC EMBEDDINGS RAG (client-side, free, no key)
+   transformers.js (all-MiniLM-L6-v2, 384-dim) -> Supabase pgvector RPC
+   ============================================================ */
+let _embedder=null,_embLoading=null;
+async function getEmbedder(){
+  if(_embedder) return _embedder;
+  if(!_embLoading){ _embLoading=(async function(){ const mod=await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2'); mod.env.allowLocalModels=false; _embedder=await mod.pipeline('feature-extraction','Xenova/all-MiniLM-L6-v2'); return _embedder; })(); }
+  return _embLoading;
+}
+async function embedText(t){ const ex=await getEmbedder(); const out=await ex(String(t).slice(0,512),{pooling:'mean',normalize:true}); return Array.from(out.data); }
+async function semanticSearch(q){
+  if(!_embedder){ getEmbedder(); return []; } /* warm up in background; use FTS this turn */
+  try{
+    const vec=await embedText(q);
+    const r=await fetch(SB_URL+'/rest/v1/rpc/match_knowledge',{method:'POST',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json'},body:JSON.stringify({query_embedding:'['+vec.join(',')+']',match_count:4})});
+    if(r.ok){ const j=await r.json(); if(Array.isArray(j)) return j.filter(function(x){ return x.similarity===undefined||x.similarity>0.3; }); }
+  }catch(e){}
+  return [];
+}
+
+/* ============================================================
+   IMAGE GENERATION (Pollinations, keyless free)
+   ============================================================ */
+async function refineImagePrompt(msg){
+  try{
+    const sys='Convert the user request into ONE concise vivid English image-generation prompt (max 40 words). Output ONLY the prompt text, nothing else.';
+    const p=await engine([{role:'system',content:sys},{role:'user',content:msg}],120,0.5,'general');
+    if(p&&p.trim()) return p.trim().split('\n')[0].replace(/^["']+|["']+$/g,'');
+  }catch(e){}
+  return msg;
+}
+function imgUrl(prompt){ const seed=Math.floor(Math.random()*1e7); return 'https://image.pollinations.ai/prompt/'+encodeURIComponent(prompt)+'?width=1024&height=1024&nologo=true&seed='+seed; }
+async function handleImage(msg,tEl){
+  const prompt=await refineImagePrompt(msg);
+  const url=imgUrl(prompt);
+  tEl.remove();
+  const d=document.createElement('div'); d.className='msg ai';
+  d.innerHTML='<div class="msg-av">🐕</div><div class="bubble"><span class="intent-tag">image</span><div class="img-wrap"><div class="img-load"><div class="typing"><span></span><span></span><span></span></div>creating your image…</div></div></div>';
+  chatEl.appendChild(d); scrollDown();
+  const wrap=d.querySelector('.img-wrap');
+  const im=new Image();
+  im.onload=function(){
+    wrap.innerHTML=''; im.className='gen-img'; wrap.appendChild(im);
+    const bar=document.createElement('div'); bar.className='img-acts';
+    const a=document.createElement('a'); a.className='act'; a.href=url; a.target='_blank'; a.rel='noopener'; a.textContent='⬇ Open / Save'; bar.appendChild(a);
+    wrap.appendChild(bar);
+    const cap=document.createElement('div'); cap.style.cssText='font-size:0.7rem;color:var(--muted);margin-top:6px'; cap.textContent=prompt; wrap.appendChild(cap); scrollDown();
+  };
+  im.onerror=function(){ wrap.innerHTML='⚠️ Image generate nahi ho payi, thodi der baad dobara try karein.'; };
+  im.src=url;
+}
+
+/* ============================================================
+   VISION — photo se padho (read & understand uploaded images)
+   ============================================================ */
+async function visionAsk(dataURL,userText){
+  const sys=IDENTITY+' VISION MODE: Carefully read and understand the image. If it contains a question or problem (maths, science, exam MCQ etc), solve it step by step and give the final answer in bold. If it is text/notes, extract the key content and explain it simply. If it is a diagram or photo, describe and explain it clearly.'+LANG_RULE;
+  const content=[{type:'text',text:(userText&&userText.trim())?userText:'Is image ko dhyan se padho aur samjhao. Agar koi sawaal ya problem ho to step-by-step solve karke final answer do.'},{type:'image_url',image_url:{url:dataURL}}];
+  const messages=[{role:'system',content:sys},{role:'user',content:content}];
+  try{ const p=await pollinations(messages,1600,0.4); if(p&&p.trim()) return p; }catch(e){}
+  if(OR_KEY){
+    for(const m of ['google/gemini-2.0-flash-exp:free','meta-llama/llama-3.2-11b-vision-instruct:free']){
+      try{ const o=await openrouter(m,messages,1600,0.4); if(o&&o.trim()) return o; }catch(e){}
+    }
+  }
+  throw new Error('Image samajhne me dikkat aayi. Settings me OpenRouter key add karke dobara try karein.');
+}
+async function onImgPick(ev){
+  const f=ev.target.files&&ev.target.files[0]; ev.target.value=''; if(!f||busy) return;
+  const reader=new FileReader();
+  reader.onload=async function(){
+    const dataURL=reader.result;
+    hideWelcome();
+    const ud=document.createElement('div'); ud.className='msg user';
+    ud.innerHTML='<div class="msg-av">🙋</div><div class="bubble"><img src="'+dataURL+'" class="up-img"/></div>';
+    chatEl.appendChild(ud); scrollDown();
+    busy=true; document.getElementById('send').disabled=true;
+    const tEl=document.createElement('div'); tEl.className='msg ai';
+    tEl.innerHTML='<div class="msg-av">🐕</div><div class="bubble"><span class="intent-tag">vision</span><div class="typing"><span></span><span></span><span></span></div></div>';
+    chatEl.appendChild(tEl); scrollDown();
+    try{ const ans=await visionAsk(dataURL,''); tEl.remove(); addMsg('ai','<span class="intent-tag">vision</span>'+renderMD(ans),ans); }
+    catch(err){ tEl.remove(); addMsg('ai','⚠️ '+esc(err.message||'Error')); }
+    busy=false; document.getElementById('send').disabled=false;
+  };
+  reader.readAsDataURL(f);
 }
 
 /* Live brain size — proof of continuous 24/7 learning (reads the growing brain) */
