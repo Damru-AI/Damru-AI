@@ -21,6 +21,10 @@
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const OPENROUTER_KEY = process.env.OPENROUTER_KEY;
+const GEMINI_KEY = process.env.GEMINI_KEY||'';
+const GOOGLE_CSE_KEY = process.env.GOOGLE_CSE_KEY||'';
+const GOOGLE_CSE_CX = process.env.GOOGLE_CSE_CX||'';
+const YOUTUBE_KEY = process.env.YOUTUBE_KEY||'';
 if(!SUPABASE_URL||!SUPABASE_KEY){ console.error('Missing SUPABASE_URL / SUPABASE_KEY'); process.exit(1); }
 
 const CYCLE_MS = parseInt(process.env.CYCLE_MS||'60000',10);
@@ -51,6 +55,14 @@ async function embed(t){
 /* Teacher: Pollinations primary (keyless) -> OpenRouter booster. */
 async function teacher(prompt,temp){
   temp = (temp===undefined?0.6:temp);
+  if(GEMINI_KEY){
+    try{
+      const gurl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key='+GEMINI_KEY;
+      const gopt = { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ contents:[{ parts:[{ text:prompt }] }], generationConfig:{ temperature:temp, maxOutputTokens:2048 } }) };
+      const gr = await fetch(gurl, gopt);
+      if(gr.ok){ const gj = await gr.json().catch(function(){return null;}); const gt = gj&&gj.candidates&&gj.candidates[0]&&gj.candidates[0].content&&gj.candidates[0].content.parts&&gj.candidates[0].content.parts[0]&&gj.candidates[0].content.parts[0].text; if(gt) return gt; }
+    }catch(e){}
+  }
   try{
     const r = await fetch('https://text.pollinations.ai/openai', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ model:'openai', messages:[{role:'user',content:prompt}], temperature:temp }) });
     if(r.ok){ const j = await r.json().catch(function(){return null;}); const t = j&&j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content; if(t) return t; }
@@ -446,6 +458,44 @@ async function retagGeneral(limit){
   }catch(e){ return 0; }
 }
 
+/* ---- REAL WEB SEARCH learner (Google Custom Search) ---- */
+async function webSearchLearner(){
+  if(!GOOGLE_CSE_KEY||!GOOGLE_CSE_CX) return 0;
+  try{
+    const sub = pick(CURRICULUM); const topic = pick(sub.topics);
+    const q = topic+' '+sub.label+' explained in depth';
+    const surl = 'https://www.googleapis.com/customsearch/v1?key='+GOOGLE_CSE_KEY+'&cx='+GOOGLE_CSE_CX+'&num=6&q='+encodeURIComponent(q);
+    const r = await fetch(surl, { headers:{ Accept:'application/json' } });
+    if(!r.ok) return 0;
+    const j = await r.json();
+    const items = (j&&j.items)||[];
+    if(!items.length) return 0;
+    var blob = items.map(function(it){ return '- '+(it.title||'')+': '+(it.snippet||''); }).join('\n');
+    const prompt = 'You are DAMRU learning '+sub.label+' ('+topic+') from REAL web search results.\nResults:\n'+blob+'\n\nUsing these as grounding, create '+QA_PER+' accurate, self-contained Q&A pairs that teach this topic from foundations toward advanced understanding. Add correct established facts where helpful; do not invent sources.\nReturn ONLY a valid JSON array of objects with string fields question and answer.';
+    const out = await teacher(prompt,0.45);
+    return await ingestPairs(extractPairs(out), sub.intent);
+  }catch(e){ return 0; }
+}
+
+/* ---- YOUTUBE learner (YouTube Data API v3) ---- */
+async function youtubeLearner(){
+  if(!YOUTUBE_KEY) return 0;
+  try{
+    const sub = pick(CURRICULUM); const topic = pick(sub.topics);
+    const q = topic+' '+sub.label+' tutorial lecture';
+    const yurl = 'https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=6&relevanceLanguage=en&key='+YOUTUBE_KEY+'&q='+encodeURIComponent(q);
+    const r = await fetch(yurl, { headers:{ Accept:'application/json' } });
+    if(!r.ok) return 0;
+    const j = await r.json();
+    const items = (j&&j.items)||[];
+    if(!items.length) return 0;
+    var blob = items.map(function(it){ var s=it.snippet||{}; return '- '+(s.title||'')+': '+(s.description||''); }).join('\n');
+    const prompt = 'You are DAMRU learning '+sub.label+' ('+topic+') by surveying educational video titles and descriptions.\nVideos:\n'+blob+'\n\nInfer the key concepts these cover and create '+QA_PER+' accurate standalone Q&A pairs teaching this topic clearly. Use correct established knowledge; do not fabricate claims about specific videos.\nReturn ONLY a valid JSON array of objects with string fields question and answer.';
+    const out = await teacher(prompt,0.5);
+    return await ingestPairs(extractPairs(out), sub.intent);
+  }catch(e){ return 0; }
+}
+
 async function cycle(n){
   const t0 = Date.now();
   const tasks = [];
@@ -458,6 +508,8 @@ async function cycle(n){
   if(n%2===1) tasks.push(journalLearner());
   if(n%3===0) tasks.push(wikiLearner());
   if(n%4===0) tasks.push(bookLearner());
+  if(n%2===1) tasks.push(webSearchLearner());
+  if(n%3===1) tasks.push(youtubeLearner());
   if(n%5===0) tasks.push(newsLearner());
   tasks.push(retagGeneral(3));
   const results = await Promise.allSettled(tasks);
