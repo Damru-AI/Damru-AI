@@ -242,7 +242,7 @@ const LEVELS = [
   { tag:'L6', band:'PhD / Research (90-100)',desc:'frontier: open problems, cutting-edge research, rigorous proofs and novel synthesis.' }
 ];
 
-const ALLOWED = {}; CURRICULUM.forEach(function(s){ ALLOWED[s.intent]=1; }); ALLOWED['math']=1; ALLOWED['general']=1; ALLOWED['currentaffairs']=1; ALLOWED['curiosity']=1;
+const ALLOWED = {}; CURRICULUM.forEach(function(s){ ALLOWED[s.intent]=1; }); ALLOWED['math']=1; ALLOWED['general']=1; ALLOWED['currentaffairs']=1; ALLOWED['curiosity']=1; ALLOWED['humanbehaviour']=1; ALLOWED['reasoning']=1;
 const INTENT_LIST = Object.keys(ALLOWED).filter(function(k){ return k!=='general'; });
 
 /* ---- in-memory ladder cursor (loaded from / saved to damru_state) ---- */
@@ -284,6 +284,41 @@ async function curiosityLearner(){
     const prompt = 'You are DAMRU, a curious self-improving AI. Here are some things you already know:\n'+(seed||'(general knowledge)')+'\n\nLet new questions be BORN IN YOUR MIND: think about what you still do not fully understand, what connects these ideas, and what a brilliant mind would ask NEXT to go deeper. Generate '+QA_PER+' original, insightful follow-up questions AND answer each one accurately and thoroughly.\nReturn ONLY a valid JSON array of objects with string fields question and answer. No prose, no markdown.';
     const out = await teacher(prompt,0.75);
     return await ingestPairs(extractPairs(out),'curiosity');
+  }catch(e){ return 0; }
+}
+
+/* ---- REASONING learner: chain-of-thought logic + complex math ---- */
+const REASONING_KINDS = ['a multi-step logic puzzle','a tricky probability or combinatorics problem','a real-world word problem requiring algebra','a deductive reasoning / syllogism problem','a lateral-thinking puzzle','a hard number-theory or arithmetic problem','an optimization problem with constraints','a cause-and-effect analysis problem','a pattern-recognition / sequence problem'];
+async function reasoningLearner(){
+  try{
+    const kind = pick(REASONING_KINDS);
+    const prompt = 'You are DAMRU practising rigorous step-by-step REASONING and logic. Create '+QA_PER+' items, each '+kind+'. For EACH item the "question" is the problem statement, and the "answer" MUST show an explicit chain-of-thought: number every reasoning step (Step 1, Step 2, ...), then end with a line "Therefore: <final answer>". Be logically rigorous and double-check the result.\nReturn ONLY a valid JSON array of objects with string fields question and answer.';
+    const out = await teacher(prompt,0.45);
+    return await ingestPairs(extractPairs(out),'reasoning');
+  }catch(e){ return 0; }
+}
+
+/* ---- SELF-EVALUATION: critique own knowledge, delete weak/wrong rows ---- */
+async function selfEvalLearner(){
+  try{
+    const offset = Math.floor(Math.random()*1400);
+    const u = SUPABASE_URL+'/rest/v1/damru_knowledge?select=id,question,answer&order=id.desc&limit=6&offset='+offset;
+    const r = await fetch(u,{ headers:{ apikey:SUPABASE_KEY, Authorization:'Bearer '+SUPABASE_KEY } });
+    if(!r.ok) return 0;
+    const rows = await r.json();
+    if(!Array.isArray(rows)||!rows.length) return 0;
+    const list = rows.map(function(x){ return '[id '+x.id+'] Q: '+ws(x.question).slice(0,200)+' || A: '+ws(x.answer).slice(0,400); }).join('\n');
+    const prompt = 'You are DAMRU critically self-evaluating your OWN stored knowledge for factual accuracy, clarity and usefulness. Score each item from 1 to 10 (10 = excellent and correct). Be strict: anything factually wrong, misleading, empty, broken or low quality should score below 5.\n\n'+list+'\n\nReturn ONLY a valid JSON array of objects each shaped like {"id": <the id number>, "score": <1-10>}. No prose.';
+    const out = await teacher(prompt,0.2);
+    const arr = extractPairs(out);
+    var removed = 0;
+    for(const o of arr){
+      const id = o && o.id; const score = Number(o && o.score);
+      if(id && score>0 && score<5){
+        try{ const dr = await fetch(SUPABASE_URL+'/rest/v1/damru_knowledge?id=eq.'+id,{ method:'DELETE', headers:{ apikey:SUPABASE_KEY, Authorization:'Bearer '+SUPABASE_KEY, Prefer:'return=minimal' } }); if(dr.ok) removed++; }catch(e){}
+      }
+    }
+    return removed;
   }catch(e){ return 0; }
 }
 
@@ -458,6 +493,73 @@ async function retagGeneral(limit){
   }catch(e){ return 0; }
 }
 
+/* ---- YouTube helpers: find videos + fetch real transcripts (keyless timedtext) ---- */
+async function ytSearchIds(query,n){
+  if(!YOUTUBE_KEY) return [];
+  try{
+    const yurl = 'https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoCaption=closedCaption&relevanceLanguage=en&maxResults='+(n||5)+'&key='+YOUTUBE_KEY+'&q='+encodeURIComponent(query);
+    const r = await fetch(yurl, { headers:{ Accept:'application/json' } });
+    if(!r.ok) return [];
+    const j = await r.json(); const items=(j&&j.items)||[];
+    return items.map(function(it){ return { id:(it.id&&it.id.videoId)||'', title:(it.snippet&&it.snippet.title)||'', desc:(it.snippet&&it.snippet.description)||'' }; }).filter(function(x){ return x.id; });
+  }catch(e){ return []; }
+}
+async function ytTranscript(id){
+  try{
+    const turl = 'https://www.youtube.com/api/timedtext?lang=en&v='+id;
+    const r = await fetch(turl, { headers:{ 'User-Agent':'Mozilla/5.0' } });
+    if(!r.ok) return '';
+    const xml = await r.text();
+    if(!xml || xml.indexOf('<text')<0) return '';
+    var parts = xml.match(/<text[^>]*>([\s\S]*?)<\/text>/g)||[];
+    var txt = parts.map(function(p){ return p.replace(/<[^>]+>/g,''); }).join(' ');
+    txt = txt.replace(/&#39;/g,String.fromCharCode(39)).replace(/&quot;/g,String.fromCharCode(34)).replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/\s+/g,' ').trim();
+    return txt;
+  }catch(e){ return ''; }
+}
+
+/* ---- VIDEO DEEP learner: actually WATCH a video (transcript) and learn its real content ---- */
+async function videoDeepLearner(){
+  if(!YOUTUBE_KEY) return 0;
+  try{
+    const sub = pick(CURRICULUM); const topic = pick(sub.topics);
+    const vids = await ytSearchIds(topic+' '+sub.label+' full lecture explained', 5);
+    for(const v of vids){
+      const tr = await ytTranscript(v.id);
+      if(tr && tr.length>400){
+        const chunk = tr.slice(0,4000);
+        const prompt = 'You are DAMRU deeply learning '+sub.label+' ('+topic+') by WATCHING an educational video. Video title: '+v.title+'.\nTranscript excerpt:\n'+chunk+'\n\nFrom what is ACTUALLY taught in this video, create '+QA_PER+' accurate, self-contained Q&A pairs capturing the real concepts and insights. Fix obvious transcription noise.\nReturn ONLY a valid JSON array of objects with string fields question and answer.';
+        const out = await teacher(prompt,0.45);
+        return await ingestPairs(extractPairs(out), sub.intent);
+      }
+    }
+    return 0;
+  }catch(e){ return 0; }
+}
+
+/* ---- HUMAN BEHAVIOUR learner: learn to think, talk and feel like a human (from videos) ---- */
+const BEHAVIOUR_TOPICS = ['human psychology and behaviour','the art of conversation with people','emotional intelligence in real conversations','body language and non-verbal cues','building rapport and empathy','personality types and traits','charisma and social skills','active listening','ethical persuasion and influence','handling difficult conversations','natural tone, humour and dialogue','what makes communication feel human and warm'];
+async function behaviourLearner(){
+  try{
+    const topic = pick(BEHAVIOUR_TOPICS);
+    if(YOUTUBE_KEY){
+      const vids = await ytSearchIds(topic+' explained', 5);
+      for(const v of vids){
+        const tr = await ytTranscript(v.id);
+        if(tr && tr.length>400){
+          const chunk = tr.slice(0,4000);
+          const prompt = 'You are DAMRU learning to understand and talk to humans like a real, warm person. Theme: '+topic+'. Source video: '+v.title+'.\nTranscript excerpt:\n'+chunk+'\n\nExtract the practical principles of human behaviour, natural conversation, emotional nuance and personality, and turn them into '+QA_PER+' Q&A pairs teaching DAMRU how humans think, feel and converse so it can respond more naturally and empathetically.\nReturn ONLY a valid JSON array of objects with string fields question and answer.';
+          const out = await teacher(prompt,0.5);
+          return await ingestPairs(extractPairs(out),'humanbehaviour');
+        }
+      }
+    }
+    const fprompt = 'Teach DAMRU about: '+topic+'. Create '+QA_PER+' practical Q&A pairs on human behaviour, natural conversation, empathy and personality so an AI can talk to people more naturally, warmly and humanly.\nReturn ONLY a valid JSON array of objects with string fields question and answer.';
+    const fout = await teacher(fprompt,0.55);
+    return await ingestPairs(extractPairs(fout),'humanbehaviour');
+  }catch(e){ return 0; }
+}
+
 /* ---- REAL WEB SEARCH learner (Google Custom Search) ---- */
 async function webSearchLearner(){
   if(!GOOGLE_CSE_KEY||!GOOGLE_CSE_CX) return 0;
@@ -509,7 +611,11 @@ async function cycle(n){
   if(n%3===0) tasks.push(wikiLearner());
   if(n%4===0) tasks.push(bookLearner());
   if(n%2===1) tasks.push(webSearchLearner());
-  if(n%3===1) tasks.push(youtubeLearner());
+  if(n%9===2) tasks.push(youtubeLearner());
+  if(n%8===4) tasks.push(videoDeepLearner());
+  if(n%5===3) tasks.push(behaviourLearner());
+  if(n%4===2) tasks.push(reasoningLearner());
+  if(n%6===5) tasks.push(selfEvalLearner());
   if(n%5===0) tasks.push(newsLearner());
   tasks.push(retagGeneral(3));
   const results = await Promise.allSettled(tasks);
