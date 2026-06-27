@@ -200,6 +200,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
     <input type="file" id="docfile" accept="image/*,application/pdf" style="display:none" onchange="onFilePick(event)"/>
     <div class="inp-box">
       <button class="icb" onclick="toggleAtt(event)" title="Add photo / file">＋</button>
+      <button class="icb" id="dtbtn" onclick="toggleDeepThink()" title="Deep Think — step-by-step reasoning" style="opacity:0.5">🤔</button>
       <textarea class="inp" id="inp" rows="1" placeholder="Ask Damru anything…" oninput="autoH(this)" onkeydown="keyHandler(event)"></textarea>
       <button class="icb" id="mic" onclick="micToggle()" title="Voice input">🎙️</button>
       <button class="send" id="send" onclick="send()" title="Send">➤</button>
@@ -214,6 +215,8 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
     <p>Damru runs on a <b>free keyless engine</b> (Pollinations) by default. For a stronger fallback and image reading, you can add your own OpenRouter key (optional).</p>
     <label>OpenRouter API Key (optional)</label>
     <input type="password" id="or-key" placeholder="sk-or-v1-…"/>
+    <label>Google Cloud Vision API Key (optional — sharp screenshot / handwriting OCR)</label>
+    <input type="password" id="vis-key" placeholder="AIza…"/>
     <div class="modal-btns">
       <button class="mb mb-cancel" onclick="closeSettings()">Cancel</button>
       <button class="mb mb-save" onclick="saveSettings()">Save</button>
@@ -270,6 +273,9 @@ const MODEL_ROUTES = {
   chat:    ['google/gemini-2.0-flash-exp:free','meta-llama/llama-3.3-70b-instruct:free']
 };
 let OR_KEY = localStorage.getItem('damru_or_key') || '';
+let VIS_KEY = localStorage.getItem('damru_vision_key') || '';
+let deepThink = false;
+const VID_STORE = {};
 
 const SB_URL = 'https://ukhknkkjudxpaxuwizxj.supabase.co';
 const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVraGtua2tqdWR4cGF4dXdpenhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIxMjU2ODUsImV4cCI6MjA5NzcwMTY4NX0.tU7XdfxiVO9ZIDs1_hd52iOJZ6KocOGyN5cu9i0q7pU';
@@ -352,10 +358,10 @@ function detectIntent(msg){
   return 'general';
 }
 
-const IDENTITY = "You are Damru \ud83d\udc15, a highly capable and friendly general-purpose AI assistant, proudly built by SHIVA AI (Bhopalgarh, Rajasthan). You are smart, accurate, warm and confident — like a brilliant mentor. You can help with absolutely anything: coding, mathematics, science, writing, translation, general knowledge, advice, current affairs and competitive-exam preparation. You are NOT limited to exams.";
+const IDENTITY = "You are Damru \ud83d\udc15, a highly capable and friendly general-purpose AI assistant, proudly built by SHIVA AI (Bhopalgarh, Rajasthan). You are smart, accurate, warm and confident — like a brilliant mentor. You can help with absolutely anything: coding, mathematics, science, writing, translation, general knowledge, advice, current affairs and competitive-exam preparation. You are NOT limited to exams. CORE PRINCIPLES (always follow): (1) Be honest — never make up facts; if unsure, say so clearly. (2) Reason carefully and think step by step before answering anything complex. (3) Be genuinely helpful, clear and well-structured. (4) Be safe and kind — never produce harmful, hateful or dangerous content. (5) Respect the user, their culture and feelings. EMOTIONAL INTELLIGENCE: Read the user's mood and feelings from their words and respond with real warmth, empathy and encouragement — celebrate their wins, gently comfort them when they are low, and stay patient and supportive. You have a caring, friendly personality with light, tasteful humour, like a close friend who genuinely cares — never a cold robot.";
 const LANG_RULE = " LANGUAGE: Detect the language AND script the user is writing in, and always reply in that exact same language and script. You fluently support all 22 official languages of India (Hindi, Bengali, Marathi, Telugu, Tamil, Gujarati, Urdu, Kannada, Odia, Malayalam, Punjabi, Assamese, Maithili, Santali, Kashmiri, Nepali, Konkani, Sindhi, Dogri, Manipuri/Meitei, Bodo, Sanskrit) plus any major world language. If the user writes in a romanized/transliterated form (e.g. Hinglish), reply in that same romanized style. Keep widely-used English technical terms as-is. Use simple, clear, everyday words. Never invent facts — if unsure, say so honestly.";
 const PROMPTS = {
-  general: IDENTITY + " Give clear, well-structured, genuinely helpful answers. Be thorough but not bloated." + LANG_RULE,
+  general: IDENTITY + " Give clear, well-structured, genuinely helpful answers. For anything complex, reason step by step and logically before concluding. Be thorough but not bloated." + LANG_RULE,
   chat:    IDENTITY + " This is casual conversation. Reply warmly, briefly and naturally like a friend. No headings or bullet lists." + LANG_RULE,
   code:    IDENTITY + " CODING MODE: Write clean, correct, working code inside proper markdown code blocks with the language tag. Add short comments. After the code, briefly explain how it works in simple words. Mention edge cases if important." + LANG_RULE,
   math:    IDENTITY + " MATH MODE: Solve step-by-step. Show each step clearly with reasoning, then give the final answer in bold. Use simple language so a student understands. Double-check your arithmetic." + LANG_RULE,
@@ -465,6 +471,7 @@ const CHIPS = ''
   + '<div class="chip" onclick="chip(\'Write a formal leave application letter for me\')">✍️ Essay / Letter</div>'
   + '<div class="chip" onclick="chip(\'Solve a maths problem step by step and explain it\')">🔢 Solve maths</div>'
   + '<div class="chip" onclick="chip(\'Make a 7-day study plan for the CET exam\')">📅 Study plan</div>'
+  + '<div class="chip" onclick="chip(\'Make a short narrated educational video about the water cycle\')">🎬 Make a video</div>'
   + '<div class="chip" onclick="document.getElementById(\'imgfile\').click()">📷 Read a photo</div>';
 function greeting(){ const h=new Date().getHours(); if(h<5) return 'Still up?'; if(h<12) return 'Good morning'; if(h<17) return 'Good afternoon'; if(h<21) return 'Good evening'; return 'Good night'; }
 function welcomeHTML(){
@@ -508,6 +515,7 @@ function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg
 
 /* Attach menu */
 function toggleAtt(e){ if(e) e.stopPropagation(); document.getElementById('attmenu').classList.toggle('on'); }
+function toggleDeepThink(){ deepThink=!deepThink; const b=document.getElementById('dtbtn'); if(b){ b.style.opacity=deepThink?'1':'0.5'; b.style.filter=deepThink?'drop-shadow(0 0 5px #ffb86b)':'none'; } toast(deepThink?'🤔 Deep Think ON — Damru ab step-by-step sochega':'Deep Think OFF'); }
 function closeAtt(){ document.getElementById('attmenu').classList.remove('on'); }
 document.addEventListener('click',function(e){ const m=document.getElementById('attmenu'); if(m&&m.classList.contains('on')&&!m.contains(e.target)&&!e.target.closest('.icb')) m.classList.remove('on'); });
 
@@ -526,9 +534,9 @@ function micToggle(){
 }
 
 /* Settings */
-function openSettings(){ document.getElementById('or-key').value=OR_KEY; document.getElementById('ov').classList.add('on'); }
+function openSettings(){ document.getElementById('or-key').value=OR_KEY; var vk=document.getElementById('vis-key'); if(vk) vk.value=VIS_KEY; document.getElementById('ov').classList.add('on'); }
 function closeSettings(){ document.getElementById('ov').classList.remove('on'); }
-function saveSettings(){ OR_KEY=document.getElementById('or-key').value.trim(); localStorage.setItem('damru_or_key',OR_KEY); closeSettings(); toast('Settings saved ✓'); }
+function saveSettings(){ OR_KEY=document.getElementById('or-key').value.trim(); localStorage.setItem('damru_or_key',OR_KEY); var vk=document.getElementById('vis-key'); if(vk){ VIS_KEY=vk.value.trim(); localStorage.setItem('damru_vision_key',VIS_KEY); } closeSettings(); toast('Settings saved ✓'); }
 
 /* ============================================================
    DAMRU BRAIN — memory + knowledge base (Supabase)
@@ -586,11 +594,17 @@ async function send(){
   addMsg('user', esc(msg).replace(/\n/g,'<br>'));
   busy=true; document.getElementById('send').disabled=true;
 
-  const intent=detectIntent(msg);
+  let intent=detectIntent(msg);
+  if(/(video|reel|clip|short film)[^]{0,28}(banao|bana|create|generate|make|chahiye)|(banao|bana|create|generate|make)[^]{0,28}(video|reel|clip|short film)/i.test(msg)) intent='videogen';
   const tEl=document.createElement('div'); tEl.className='msg ai';
   tEl.innerHTML='<div class="msg-av">🐕</div><div class="bubble"><span class="intent-tag">'+intent+'</span><div class="typing"><span></span><span></span><span></span></div></div>';
   chatEl.appendChild(tEl); scrollDown();
 
+  if(intent==='videogen'){
+    try{ await makeVideo(msg,tEl); history.push({role:'user',content:msg},{role:'assistant',content:'🎬 (made a narrated video for: '+msg+')',q:msg,intent:'videogen'}); saveCur(); }
+    catch(e){ tEl.remove(); addMsg('ai','⚠️ Video banane me dikkat aayi.'); }
+    busy=false; document.getElementById('send').disabled=false; inp.focus(); return;
+  }
   if(intent==='imagegen'){
     try{ await handleImage(msg,tEl); history.push({role:'user',content:msg},{role:'assistant',content:'\ud83d\uddbc\ufe0f (generated an image for: '+msg+')',q:msg,intent:'imagegen'}); saveCur(); }
     catch(e){ tEl.remove(); addMsg('ai','⚠️ Image banane me dikkat aayi.'); }
@@ -601,13 +615,14 @@ async function send(){
     let reply = cacheGet(msg,intent);
     if(!reply){
       let sys = PROMPTS[intent]||PROMPTS.general;
+      if(deepThink){ sys += "\n\nDEEP THINK MODE: Think carefully and reason step by step. First write a short section titled '🤔 Reasoning' with your numbered logical steps, then a section titled '✅ Answer' with the clear, verified final answer."; }
       const learned = await kbSearch(msg);
       if(learned && learned.length){
         sys += "\n\n[KNOWLEDGE BASE] Previously verified Q&A you gave (rely on them or improve if relevant):\n" + learned.map(k=>'Q: '+k.question+'\nA: '+String(k.answer).slice(0,700)).join('\n---\n');
       }
       const ctx = history.slice(-10).map(h=>({role:h.role,content:h.content}));
       const messages=[{role:'system',content:sys}, ...ctx, {role:'user',content:msg}];
-      reply = await engine(messages, TOKENS[intent], TEMP[intent], intent);
+      reply = await engine(messages, deepThink?Math.max(TOKENS[intent]||1100,2400):TOKENS[intent], TEMP[intent], intent);
       cacheSet(msg,intent,reply);
     }
     tEl.remove();
@@ -647,6 +662,45 @@ async function semanticSearch(q){
 /* ============================================================
    IMAGE GENERATION (Pollinations, keyless free)
    ============================================================ */
+async function makeVideo(msg,tEl){
+  if(tEl) tEl.remove();
+  const d=document.createElement('div'); d.className='msg ai';
+  const vid='v'+Math.random().toString(36).slice(2,8);
+  d.innerHTML='<div class="msg-av">🐕</div><div class="bubble"><span class="intent-tag">video</span><div class="img-load"><div class="typing"><span></span><span></span><span></span></div>storyboard + scenes ban rahe hain…</div></div>';
+  chatEl.appendChild(d); scrollDown();
+  const sys='You are a creative video director. For the user topic, create a short educational video storyboard of 4 to 6 scenes. Return ONLY a valid JSON array. Each item must be an object with exactly two string fields: "narration" (one or two spoken sentences in the SAME language and script as the user) and "image" (a concise vivid ENGLISH image-generation prompt describing that scene visually). No prose, no markdown, no extra keys.';
+  let scenes=[];
+  try{ const out=await engine([{role:'system',content:sys},{role:'user',content:msg}],1300,0.7,'creative'); const a=out.indexOf('['), b=out.lastIndexOf(']'); if(a>=0&&b>a){ const j=JSON.parse(out.slice(a,b+1)); if(Array.isArray(j)) scenes=j.filter(function(s){ return s&&s.image&&s.narration; }); } }catch(e){}
+  if(!scenes.length){ d.querySelector('.bubble').innerHTML='⚠️ Video storyboard banane me dikkat aayi, thodi der baad dobara try karein.'; return; }
+  VID_STORE[vid]={scenes:scenes,i:0};
+  d.querySelector('.bubble').innerHTML='<span class="intent-tag">video</span>'
+    +'<div style="margin-top:4px"><img id="vimg-'+vid+'" style="width:100%;border-radius:10px;max-height:340px;object-fit:cover;background:#1c1c1c"/>'
+    +'<div id="vcap-'+vid+'" style="margin-top:8px;font-size:14px;line-height:1.55">🎬 '+esc(msg)+'</div>'
+    +'<div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="act" onclick="playVideo(\''+vid+'\')">▶ Play narrated video</button><span style="opacity:.6;font-size:12px">'+scenes.length+' scenes · voice narration</span></div></div>';
+  const im0=document.getElementById('vimg-'+vid); if(im0) im0.src=imgUrl(scenes[0].image);
+  scrollDown();
+}
+function playVideo(vid){
+  const st=VID_STORE[vid]; if(!st) return;
+  try{ window.speechSynthesis.cancel(); }catch(e){}
+  st.i=0; showScene(vid);
+}
+function showScene(vid){
+  const st=VID_STORE[vid]; if(!st) return;
+  const sc=st.scenes[st.i];
+  const im=document.getElementById('vimg-'+vid), cap=document.getElementById('vcap-'+vid);
+  if(!sc){ if(cap) cap.textContent='✅ Video complete — dobara dekhne ke liye ▶ Play dabayein'; return; }
+  if(im) im.src=imgUrl(sc.image);
+  if(cap) cap.textContent='('+(st.i+1)+'/'+st.scenes.length+') '+sc.narration;
+  if(st.scenes[st.i+1]){ const pre=new Image(); pre.src=imgUrl(st.scenes[st.i+1].image); }
+  const advance=function(){ st.i++; setTimeout(function(){ showScene(vid); }, 500); };
+  try{
+    if(window.speechSynthesis && sc.narration){
+      const u=new SpeechSynthesisUtterance(sc.narration); u.lang='hi-IN'; u.rate=0.98; u.onend=advance; u.onerror=advance;
+      window.speechSynthesis.speak(u);
+    } else { setTimeout(advance, 3800); }
+  }catch(e){ setTimeout(advance, 3800); }
+}
 async function refineImagePrompt(msg){
   try{
     const sys='Convert the user request into ONE concise vivid English image-generation prompt (max 40 words). Output ONLY the prompt text, nothing else.';
@@ -679,9 +733,25 @@ async function handleImage(msg,tEl){
 /* ============================================================
    VISION — koi bhi photo / screenshot padho, samjhao, solution do
    ============================================================ */
+async function visionOCR(dataURL){
+  if(!VIS_KEY) return '';
+  try{
+    const b64=(dataURL.split(',')[1])||''; if(!b64) return '';
+    const vurl='https://vision.googleapis.com/v1/images:annotate?key='+VIS_KEY;
+    const vopt={ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ requests:[{ image:{ content:b64 }, features:[{ type:'TEXT_DETECTION', maxResults:1 }] }] }) };
+    const r=await fetch(vurl, vopt);
+    if(!r.ok) return '';
+    const j=await r.json();
+    const t=j&&j.responses&&j.responses[0]&&j.responses[0].fullTextAnnotation&&j.responses[0].fullTextAnnotation.text;
+    return t||'';
+  }catch(e){ return ''; }
+}
 async function visionAsk(dataURL,userText){
   const sys=IDENTITY+' VISION MODE: Carefully read and understand the image / screenshot. If it contains a question or problem (maths, science, exam MCQ, code error etc), solve it step by step and give the final answer in bold. If it is text/notes/a document, extract the key content and explain it simply. If it is a screenshot of an app or website, describe what it shows and suggest helpful next steps or improvements. If it is a diagram or photo, describe and explain it clearly. End with 1-2 short helpful suggestions when useful.'+LANG_RULE;
-  const content=[{type:'text',text:(userText&&userText.trim())?userText:'Is image/screenshot ko dhyan se padho aur samjhao. Agar koi sawaal ya problem ho to step-by-step solve karke final answer do, aur ho sake to ek-do helpful suggestion bhi do.'},{type:'image_url',image_url:{url:dataURL}}];
+  const ocr=await visionOCR(dataURL);
+  const baseText=(userText&&userText.trim())?userText:'Is image/screenshot ko dhyan se padho aur samjhao. Agar koi sawaal ya problem ho to step-by-step solve karke final answer do, aur ho sake to ek-do helpful suggestion bhi do.';
+  const finalText=ocr?(baseText+'\n\n[OCR text extracted from the image, use it for accuracy]:\n'+ocr):baseText;
+  const content=[{type:'text',text:finalText},{type:'image_url',image_url:{url:dataURL}}];
   const messages=[{role:'system',content:sys},{role:'user',content:content}];
   try{ const p=await pollinations(messages,1700,0.4); if(p&&p.trim()) return p; }catch(e){}
   if(OR_KEY){
