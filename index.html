@@ -170,6 +170,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
     <button class="ico" onclick="closeSb()" title="Close" style="display:none" id="sb-close">«</button>
   </div>
   <button class="newbtn" onclick="newChat()"><span class="ic">✎</span> New chat</button>
+  <button class="newbtn" onclick="openLab()" style="margin-top:6px"><span class="ic">🧪</span> Open Lab</button>
   <div class="sb-sec">Recents</div>
   <div class="chatlist" id="chatlist"></div>
   <div class="sb-foot">
@@ -216,6 +217,33 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
     <div class="modal-btns">
       <button class="mb mb-cancel" onclick="closeSettings()">Cancel</button>
       <button class="mb mb-save" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+<style>
+.lab-modal{max-width:540px;width:94%}
+.lab-explore{display:flex;gap:8px;margin:6px 0 4px}
+.lab-explore input{flex:1;padding:10px 12px;border:1px solid var(--border2);border-radius:10px;background:var(--panel);color:var(--text);font-size:0.92rem;outline:none}
+.lab-feed{max-height:44vh;overflow-y:auto;display:flex;flex-direction:column;gap:6px;margin:4px 0 10px}
+.lab-row{display:flex;gap:8px;align-items:flex-start;padding:7px 9px;background:var(--panel);border:1px solid var(--border);border-radius:9px}
+.lab-tag{flex:none;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--accent);background:var(--accent-dim,rgba(217,119,87,0.13));padding:2px 7px;border-radius:6px;font-weight:700;margin-top:1px}
+.lab-q{font-size:0.85rem;color:var(--text);line-height:1.35}
+.lab-empty{color:var(--muted);font-size:0.85rem;padding:10px;text-align:center}
+.lab-stat{color:var(--muted);font-size:0.85rem;margin-bottom:4px}
+</style>
+<div class="ov" id="lab">
+  <div class="modal lab-modal">
+    <h3>🧪 Damru Open Lab</h3>
+    <p class="lab-stat" id="lab-stat">Damru ka azad dimaag — yahan wo khud, bina kisi limit ke, har minute seekhta rehta hai.</p>
+    <div class="lab-explore">
+      <input id="lab-inp" placeholder="Damru, explore: fusion rockets, CRISPR, RAS polity…" onkeydown="if(event.key==='Enter')labExplore()"/>
+      <button class="mb mb-save" onclick="labExplore()">Explore</button>
+    </div>
+    <div class="sb-sec" style="padding-left:0">Live feed — abhi ye seekh raha hai</div>
+    <div class="lab-feed" id="lab-feed"><div class="lab-empty">Loading…</div></div>
+    <div class="modal-btns">
+      <button class="mb mb-cancel" onclick="closeLab()">Close</button>
+      <button class="mb mb-save" onclick="loadLabFeed()">Refresh</button>
     </div>
   </div>
 </div>
@@ -706,6 +734,29 @@ brainCount(); setInterval(brainCount,60000);
 /* ============================================================
    INIT
    ============================================================ */
+function openLab(){ const l=document.getElementById('lab'); if(l){ l.classList.add('on'); loadLabFeed(); } }
+function closeLab(){ const l=document.getElementById('lab'); if(l) l.classList.remove('on'); }
+async function loadLabFeed(){
+  const feed=document.getElementById('lab-feed'); const stat=document.getElementById('lab-stat');
+  if(feed) feed.innerHTML='<div class="lab-empty">Loading…</div>';
+  try{
+    const r=await fetch(SB_URL+'/rest/v1/damru_knowledge?select=question,intent&order=id.desc&limit=24',{headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY}});
+    const rows=await r.json();
+    if(!Array.isArray(rows)||!rows.length){ if(feed) feed.innerHTML='<div class="lab-empty">Abhi koi data nahi mila.</div>'; return; }
+    const subs={}; rows.forEach(function(x){ const k=x.intent||'general'; subs[k]=(subs[k]||0)+1; });
+    const kinds=Object.keys(subs).length;
+    if(stat) stat.innerHTML='Pichhle '+rows.length+' lessons — <b>'+kinds+'</b> alag subjects me. Damru khud, har minute seekh raha hai 🧠';
+    if(feed) feed.innerHTML=rows.map(function(x){ return '<div class="lab-row"><span class="lab-tag">'+esc(x.intent||'general')+'</span><span class="lab-q">'+esc((x.question||'').slice(0,140))+'</span></div>'; }).join('');
+  }catch(e){ if(feed) feed.innerHTML='<div class="lab-empty">Feed load nahi ho paya.</div>'; }
+}
+function labExplore(){
+  const el=document.getElementById('lab-inp'); const v=((el&&el.value)||'').trim(); if(!v) return;
+  closeLab(); if(el) el.value='';
+  const inp=document.getElementById('inp');
+  inp.value='Deeply explore and teach from basics to advanced (level 0 to 100): '+v+'. Cover the key concepts, how it works, real-world and future applications, and the open/unsolved questions.';
+  send();
+}
+
 (function init(){
   loadChats();
   const cur=localStorage.getItem('damru_current');
