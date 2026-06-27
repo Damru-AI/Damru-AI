@@ -22,6 +22,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - name: Install embedding deps
+        run: npm init -y && npm i @xenova/transformers@2.17.2 --no-audit --no-fund
       - name: Run Damru learning engine (~5.5h, learns every 60s)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -35,3 +37,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh workflow run learn.yml -R "$GITHUB_REPOSITORY" || true
+        
