@@ -7,6 +7,10 @@ Tests a model on eval/benchmark.jsonl and grades it:
   - open items: graded 0..1 by an LLM judge
 Writes eval_report.json + eval_report.html and prints per-category accuracy.
 
+SELF-IMPROVEMENT: also writes eval/weak_topics.json listing the SUBJECTS where
+Damru scored below WEAK_THRESHOLD. The learning engine reads this and focuses
+extra effort exactly there (closed feedback loop).
+
 Use it to measure Damru's quality BEFORE vs AFTER fine-tuning (change EVAL_MODEL).
 
 Env:
@@ -14,6 +18,7 @@ Env:
   EVAL_MODEL   model under test (default a free model)
   JUDGE_MODEL  judge model (default a strong free model)
   EVAL_FILE    default 'eval/benchmark.jsonl'
+  WEAK_THRESHOLD  category score below this -> weak (default 0.7)
   LIMIT        optional cap on number of items
 """
 import os
@@ -23,12 +28,29 @@ import time
 import urllib.request
 import urllib.error
 
-KEY = os.environ.get("OPENROUTER_API_KEY", "")
+KEY = os.environ.get("OPENROUTER_API_KEY", "") or os.environ.get("OPENROUTER_KEY", "")
 EVAL_MODEL = os.environ.get("EVAL_MODEL", "qwen/qwen-2.5-72b-instruct:free")
 JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "deepseek/deepseek-chat-v3-0324:free")
 EVAL_FILE = os.environ.get("EVAL_FILE", os.path.join(os.path.dirname(os.path.abspath(__file__)), "benchmark.jsonl"))
+WEAK_THRESHOLD = float(os.environ.get("WEAK_THRESHOLD", "0.7"))
 LIMIT = int(os.environ.get("LIMIT", "0"))
 OR_URL = "https://openrouter.ai/api/v1/chat/completions"
+WEAK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "weak_topics.json")
+
+# Map eval categories -> curriculum subject names the engine understands.
+CATEGORY_TO_SUBJECTS = {
+    "math": ["Mathematics", "Algebra", "Calculus"],
+    "physics": ["Physics", "Classical Mechanics", "Electromagnetism"],
+    "chemistry": ["Chemistry", "Organic Chemistry", "Physical Chemistry"],
+    "biology": ["Biology", "Genetics", "Human Anatomy"],
+    "coding": ["Computer Science", "Algorithms", "Data Structures"],
+    "cs": ["Computer Science", "Operating Systems", "Databases"],
+    "reasoning": ["Critical Thinking", "Logic", "Real World Problem Solving"],
+    "gk_india": ["World History", "Geography", "Political Science"],
+    "hindi": ["Real World Problem Solving", "Literature"],
+    "english": ["Literature", "Linguistics"],
+    "general": ["Real World Problem Solving"],
+}
 
 
 def _chat(model, messages, temperature=0.2, max_tokens=900):
@@ -88,6 +110,24 @@ def _judge(question, reference, answer):
     return 0.0, "unparseable judge reply"
 
 
+def write_weak_topics(by_cat):
+    weak_cats = [c for c, s in by_cat.items() if s < WEAK_THRESHOLD]
+    subjects = []
+    for c in weak_cats:
+        for s in CATEGORY_TO_SUBJECTS.get(c, []):
+            if s not in subjects:
+                subjects.append(s)
+    payload = {
+        "generated": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "threshold": WEAK_THRESHOLD,
+        "weak_categories": weak_cats,
+        "weak_subjects": subjects,
+    }
+    with open(WEAK_FILE, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False)
+    print("Wrote weak_topics.json -> weak categories:", weak_cats or "(none, all strong!)")
+
+
 def main():
     if not KEY:
         print("ERROR: OPENROUTER_API_KEY not set.")
@@ -130,6 +170,8 @@ def main():
     with open("eval_report.json", "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
 
+    write_weak_topics(by_cat)
+
     rows = "".join(
         "<tr><td>%s</td><td style='text-align:right'>%.0f%%</td></tr>" % (c, s * 100)
         for c, s in sorted(by_cat.items())
@@ -150,7 +192,7 @@ def main():
     print("Overall: %.1f%%" % (overall * 100))
     for c, s in sorted(by_cat.items()):
         print("  %-14s %.1f%%" % (c, s * 100))
-    print("Wrote eval_report.json + eval_report.html")
+    print("Wrote eval_report.json + eval_report.html + weak_topics.json")
 
 
 if __name__ == "__main__":
