@@ -3,7 +3,7 @@ name: Damru Sync to HuggingFace
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 2 * * *'   # daily mirror Supabase -> HuggingFace
+    - cron: '0 * * * *'   # EVERY HOUR: append Supabase -> HuggingFace
 
 permissions:
   contents: read
@@ -23,10 +23,12 @@ jobs:
           python-version: '3.11'
       - name: Install deps
         run: pip install -q datasets huggingface_hub requests
-      - name: Sync Supabase to HuggingFace
+      - name: Hourly incremental sync
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_REPO: Damaru-ai/damru-knowledge
+          SUPABASE_CLEANUP: 'true'    # auto-delete old Supabase rows (safe: only after HF upload)
+          CLEANUP_KEEP: '30000'       # newest 30k rows stay in Supabase for live RAG
         run: python phase4/sync_to_hf.py
