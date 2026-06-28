@@ -4,19 +4,20 @@ Damru Learning Engine - orchestrator.
 
 Runs many workers in parallel, each crash-isolated (one failure never stops the
 engine). Workers:
-  - general : multi-source harvest (Wikipedia + arXiv + Stack Exchange) focused on
-              the CURRENT subject (one subject at a time -> mastery -> next).
+  - general : multi-source harvest (Wikipedia + arXiv + Stack Exchange) on the
+              current subject (one subject at a time -> mastery -> next).
   - analysis: deep reasoning + self-check on the current subject.
   - math    : verified (sympy) + olympiad/JEE/MIT-style self-solved+checked.
   - coding  : 4X workers; problems solved AND executed to verify correctness.
   - hindi   : exam-grade Q&A generated in Hindi / regional languages.
   - exam    : syllabus-aligned Q&A for JEE/NEET/UPSC/NCERT/SSC-Banking.
 
-Every accepted item must pass the self-evaluation bar, which RISES as the dataset
-grows. Accepted rows go to Supabase; the hourly sync ships them to HuggingFace.
+Multi-provider brain (OpenRouter + Groq + Gemini) beats rate limits.
+Eval-driven feedback makes workers focus on Damru's weak subjects.
+Sharding (SHARD_TOTAL>1) lets several engines run in parallel without overlap.
 
-Deploy continuously (VPS / PC / Colab):  python3 run_engine.py
-Or cron-chunked: set MAX_RUNTIME_MIN=110 and run every 2h.
+Deploy continuously:  python3 run_engine.py
+Or cron-chunked: set MAX_RUNTIME_MIN=110.
 """
 import os
 import sys
@@ -32,6 +33,7 @@ import config
 import store
 import evaluator
 import curriculum
+import feedback
 import math_engine
 import coding_engine
 import analysis_engine
@@ -69,6 +71,11 @@ def log(msg):
     print("[%7.0fs] %s" % (el, msg), flush=True)
 
 
+def _subject():
+    """Curriculum subject, sometimes overridden by a weak subject (self-improvement)."""
+    return feedback.pick_subject(curriculum.current_subject())
+
+
 def _accept_and_store(items, kind, subject=None):
     """Gate items through the rising self-eval bar, then store. Returns inserted count."""
     total = STATS.get_total()
@@ -97,7 +104,7 @@ def general_worker(wid):
     srcs = [wikipedia, arxiv, stackexchange]
     while not _STOP.is_set():
         try:
-            subject = curriculum.current_subject()
+            subject = _subject()
             src = random.choice(srcs)
             items = src.harvest(subject)
             n = _accept_and_store(items, "general", subject=subject)
@@ -111,7 +118,7 @@ def general_worker(wid):
 def analysis_worker(wid):
     while not _STOP.is_set():
         try:
-            subject = curriculum.current_subject()
+            subject = _subject()
             items = analysis_engine.produce(subject, n=4)
             n = _accept_and_store(items, "analysis", subject=subject)
             log("analysis#%d %-24s +%d" % (wid, subject[:24], n))
@@ -148,7 +155,7 @@ def coding_worker(wid):
 def hindi_worker(wid):
     while not _STOP.is_set():
         try:
-            subject = curriculum.current_subject()
+            subject = _subject()
             lang = random.choice(config.REGIONAL_LANGS) if config.REGIONAL_LANGS else "hi"
             items = hindi_engine.produce(subject, lang=lang, n=4)
             n = _accept_and_store(items, "hindi", subject=subject)
@@ -180,9 +187,12 @@ def reporter():
         el_h = max(1e-6, (time.time() - _START) / 3600.0)
         total = STATS.get_total()
         rate_day = total / el_h * 24
+        weak = feedback.weak_subjects()
         log("== TOTAL %d | %.0f/hr | proj %.0f/day | target %d | bar=%.3f | %s"
             % (total, total / el_h, rate_day, config.DAILY_TARGET,
                evaluator.dynamic_threshold(total), dict(STATS.by_kind)))
+        if weak:
+            log("   focusing weak subjects: %s" % ", ".join(weak[:8]))
         for subj, cnt, mastered in curriculum.snapshot():
             log("   %-28s %6d %s" % (subj, cnt, "\u2713" if mastered else ""))
 
@@ -196,13 +206,18 @@ def main():
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
     log("Damru Learning Engine starting. target=%d/day" % config.DAILY_TARGET)
-    log("workers: general=%d analysis=%d math=%d coding=%d hindi=%d exam=%d"
-        % (config.GENERAL_WORKERS, config.ANALYSIS_WORKERS,
-           config.MATH_WORKERS, config.CODING_WORKERS,
+    log("shard %d/%d | workers: general=%d analysis=%d math=%d coding=%d hindi=%d exam=%d"
+        % (config.SHARD_ID, config.SHARD_TOTAL, config.GENERAL_WORKERS,
+           config.ANALYSIS_WORKERS, config.MATH_WORKERS, config.CODING_WORKERS,
            config.HINDI_WORKERS, config.EXAM_WORKERS))
-    if not config.OPENROUTER_API_KEY:
-        log("WARNING: OPENROUTER_API_KEY not set -> analysis/math/coding/hindi/exam limited; "
-            "general harvest still works.")
+    provs = []
+    if config.OPENROUTER_API_KEY:
+        provs.append("OpenRouter")
+    if config.GROQ_API_KEY:
+        provs.append("Groq")
+    if config.GEMINI_API_KEY:
+        provs.append("Gemini")
+    log("LLM providers active: %s" % (", ".join(provs) or "NONE (general harvest only)"))
 
     threads = []
     for i in range(config.GENERAL_WORKERS):
