@@ -5,6 +5,10 @@ Rotates across every provider whose key is set -> OpenRouter + Groq + Google Gem
 This spreads load so free-tier rate limits (429) almost never block the engine.
 Each call round-robins the starting provider and falls back through the rest.
 Uses only stdlib (urllib) so it never breaks on missing deps.
+
+DEPTH: answers are forced to be long, comprehensive explanations of roughly
+config.ANSWER_MIN_LINES..ANSWER_MAX_LINES lines, and each new pass over a subject
+(`depth`) pushes progressively more advanced material so topics get covered fast.
 """
 import json
 import re
@@ -38,7 +42,7 @@ def _providers():
     return out
 
 
-def _http_post(url, payload, headers, timeout=120):
+def _http_post(url, payload, headers, timeout=180):
     data = json.dumps(payload).encode()
     req = urllib.request.Request(url, data=data, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -104,9 +108,11 @@ def _try_one(provider, model, messages, temperature, max_tokens):
     return ""
 
 
-def chat(messages, temperature=0.7, max_tokens=1400, models=None):
+def chat(messages, temperature=0.7, max_tokens=None, models=None):
     """Call an LLM with multi-provider rotation + retries. Returns text or raises."""
     global _rr
+    if max_tokens is None:
+        max_tokens = config.ANSWER_MAX_TOKENS
     providers = _providers()
     if not providers:
         raise RuntimeError("No LLM provider keys configured")
@@ -155,24 +161,51 @@ def extract_json(text):
 
 
 DEEP_SYS = (
-    "You are Damru, a relentless self-teaching AI. Think DEEPLY and use rigorous "
-    "critical analysis. Reason step by step, question assumptions, consider edge "
-    "cases, and never give up until you reach a correct, well-justified answer. "
-    "Be precise and educational."
+    "You are Damru, a relentless self-teaching AI and master teacher. Think DEEPLY "
+    "and use rigorous critical analysis. Reason step by step, question assumptions, "
+    "consider edge cases, and never give up until you reach a correct, well-justified "
+    "answer. Your explanations are long, structured, and genuinely educational."
 )
 
 
-def generate_qa(subject, context="", lang="en"):
+def length_clause():
+    """Shared instruction that forces long, comprehensive ~100-150 line answers."""
+    return (
+        "Write a COMPREHENSIVE, in-depth answer of roughly %d-%d lines. Structure it "
+        "with: (a) the core idea/intuition, (b) full step-by-step derivation or reasoning, "
+        "(c) at least one fully worked example, (d) important edge cases and common "
+        "mistakes, and (e) a short final summary / key takeaways. Be thorough and detailed, "
+        "but every line must add real value (no filler or repetition)."
+        % (config.ANSWER_MIN_LINES, config.ANSWER_MAX_LINES)
+    )
+
+
+def _depth_clause(depth):
+    if not depth or depth <= 0:
+        return ("This is the FIRST pass on this subject: cover a fundamental but "
+                "non-trivial question that builds a strong base.")
+    return (
+        "This is pass #%d on this subject. Go DEEPER than before: choose a more "
+        "advanced, less obvious question (advanced sub-topics, harder problems, "
+        "real research/applied angles) and AVOID basic introductory questions already "
+        "likely covered in earlier passes." % (depth + 1)
+    )
+
+
+def generate_qa(subject, context="", lang="en", depth=0):
     """Force Damru to pose a meaningful problem in `subject` and solve it deeply.
-    Returns dict {question, answer} or None."""
+    `depth` = how many full rotation batches this subject already completed, used to
+    push progressively more advanced content. Returns dict {question, answer} or None."""
     ctx = ("\n\nReference context:\n" + context[:1500]) if context else ""
     user = (
-        "Subject: %s.%s\n\n"
+        "Subject: %s.\n%s%s\n\n"
         "1) Pose ONE substantive, non-trivial question or real-world problem in this subject.\n"
         "2) Solve it with deep step-by-step reasoning and critical analysis.\n"
-        "3) End with a clear, complete final answer.\n\n"
+        "3) %s\n"
+        "4) End with a clear, complete final answer.\n\n"
         "Reply ONLY as JSON: {\"question\": \"...\", \"answer\": \"...\"} "
-        "where answer contains the full reasoning + final answer." % (subject, ctx)
+        "where answer contains the full reasoning + final answer."
+        % (subject, _depth_clause(depth), ctx, length_clause())
     )
     txt = chat(
         [{"role": "system", "content": DEEP_SYS}, {"role": "user", "content": user}],
@@ -185,12 +218,16 @@ def generate_qa(subject, context="", lang="en"):
 
 
 def self_check(question, answer, subject=""):
-    """Critique + correct an answer. Returns (is_correct: bool, improved_answer: str)."""
+    """Critique + correct an answer. Returns (is_correct: bool, improved_answer: str).
+    Preserves the full depth/length of the answer (never shortens a good answer)."""
     user = (
         "Critically review this Q&A in %s. Find any error or gap, then provide the "
-        "corrected, improved final answer.\n\nQ: %s\n\nA: %s\n\n"
+        "corrected, improved final answer. Keep it just as detailed and long (%d-%d lines): "
+        "preserve all correct reasoning, fix mistakes, and fill any gaps rather than shortening.\n\n"
+        "Q: %s\n\nA: %s\n\n"
         "Reply ONLY as JSON: {\"verdict\": \"correct|incorrect\", \"final_answer\": \"...\"}"
-        % (subject or "the subject", question[:1500], answer[:3000])
+        % (subject or "the subject", config.ANSWER_MIN_LINES, config.ANSWER_MAX_LINES,
+           question[:1500], answer[:8000])
     )
     try:
         txt = chat(
@@ -200,7 +237,11 @@ def self_check(question, answer, subject=""):
         obj = extract_json(txt)
         if obj and obj.get("final_answer"):
             ok = str(obj.get("verdict", "")).lower().startswith("correct")
-            return ok, str(obj["final_answer"]).strip()
+            improved = str(obj["final_answer"]).strip()
+            # Never let self-check shrink a good long answer into a stub.
+            if len(improved) < 0.6 * len(answer or ""):
+                return ok, answer
+            return ok, improved
     except Exception:
         pass
     return True, answer  # fail-open: keep original
