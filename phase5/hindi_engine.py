@@ -2,6 +2,7 @@
 Hindi / regional-language track for Damru.
 Generates exam-grade Q&A ENTIRELY in an Indian language so Damru can help
 students who study in their mother tongue. Uses the shared brain (LLM) layer.
+Answers are long + comprehensive (100-150 lines, see brain.length_clause).
 Crash-proof: any failure just returns fewer items; never raises to the worker loop.
 """
 import random
@@ -23,7 +24,7 @@ LANG_NAMES = {
 
 _SYS = (
     "You are Damru, a deeply knowledgeable, patient bilingual tutor for Indian "
-    "students. Think step by step with rigor and explain clearly."
+    "students. Think step by step with rigor and explain clearly and thoroughly."
 )
 
 
@@ -33,12 +34,13 @@ def _gen_one(subject, lang):
         "Subject: %s.\n\n"
         "1) Pose ONE substantive, exam-relevant question or real-world problem in this subject.\n"
         "2) Solve it with clear step-by-step reasoning.\n"
-        "3) End with a complete final answer.\n\n"
+        "3) %s\n"
+        "4) End with a complete final answer.\n\n"
         "Write the ENTIRE question AND answer in %s. "
         "Keep standard technical terms / formulae understandable (you may keep symbols and "
         "English keywords where natural), but the explanation must be in %s.\n\n"
         "Reply ONLY as JSON: {\"question\": \"...\", \"answer\": \"...\"}"
-        % (subject, name, name)
+        % (subject, brain.length_clause(), name, name)
     )
     try:
         txt = brain.chat(
