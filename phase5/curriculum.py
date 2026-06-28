@@ -1,6 +1,10 @@
 """
 Curriculum = the world's subjects, learned ONE AT A TIME until mastery, then next.
 Progress persisted in sqlite so it resumes after restarts.
+
+Sharding: when SHARD_TOTAL > 1, each parallel engine covers a DISJOINT strided
+slice of subjects (shard 0 -> subjects 0,3,6..; shard 1 -> 1,4,7..; etc.) so
+multiple engines running at once never duplicate each other's coverage.
 """
 import os
 import sqlite3
@@ -43,6 +47,18 @@ SUBJECTS = [
 _DB = os.path.join(config.DATA_DIR, "curriculum.db")
 
 
+def _pool():
+    """Subjects this shard is responsible for."""
+    if config.SHARD_TOTAL > 1:
+        sub = SUBJECTS[config.SHARD_ID % config.SHARD_TOTAL::config.SHARD_TOTAL]
+        return sub or SUBJECTS
+    return SUBJECTS
+
+
+def _ptr_key():
+    return "ptr_%d_%d" % (config.SHARD_ID, config.SHARD_TOTAL) if config.SHARD_TOTAL > 1 else "ptr"
+
+
 def _conn():
     c = sqlite3.connect(_DB, timeout=30)
     c.execute(
@@ -55,13 +71,14 @@ def _conn():
 
 
 def current_subject():
+    pool = _pool()
     c = _conn()
     try:
-        row = c.execute("SELECT v FROM meta WHERE k='ptr'").fetchone()
+        row = c.execute("SELECT v FROM meta WHERE k=?", (_ptr_key(),)).fetchone()
         ptr = int(row[0]) if row else 0
-        if ptr >= len(SUBJECTS):
-            ptr = ptr % len(SUBJECTS)  # wrap -> second pass deepens everything
-        return SUBJECTS[ptr]
+        if ptr >= len(pool):
+            ptr = ptr % len(pool)  # wrap -> deeper passes
+        return pool[ptr]
     finally:
         c.close()
 
@@ -83,12 +100,12 @@ def record(subject, n, quality):
         cnt = c.execute("SELECT count FROM progress WHERE subject=?", (subject,)).fetchone()[0]
         if cnt >= config.MASTERY_TARGET:
             c.execute("UPDATE progress SET mastered=1 WHERE subject=?", (subject,))
-            row = c.execute("SELECT v FROM meta WHERE k='ptr'").fetchone()
+            row = c.execute("SELECT v FROM meta WHERE k=?", (_ptr_key(),)).fetchone()
             ptr = (int(row[0]) if row else 0) + 1
             c.execute(
-                "INSERT INTO meta(k,v) VALUES('ptr',?) "
+                "INSERT INTO meta(k,v) VALUES(?,?) "
                 "ON CONFLICT(k) DO UPDATE SET v=excluded.v",
-                (str(ptr),),
+                (_ptr_key(), str(ptr)),
             )
             c.commit()
             return True
