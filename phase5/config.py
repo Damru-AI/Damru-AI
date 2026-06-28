@@ -97,7 +97,21 @@ START_QUALITY = float(os.environ.get("START_QUALITY", "0.55"))
 MAX_QUALITY = float(os.environ.get("MAX_QUALITY", "0.88"))
 QUALITY_RISE_PER_10K = float(os.environ.get("QUALITY_RISE_PER_10K", "0.015"))
 
-# Per-subject mastery before moving to the next subject
+# Per-subject cumulative count that flags a subject as 'mastered' (for stats only).
 MASTERY_TARGET = int(os.environ.get("MASTERY_TARGET", "5000"))
+
+# --- Subject ROTATION: move to the NEXT subject after this many accepted rows,
+# round-robin across all subjects. When a full round completes, the pointer wraps
+# and each subject continues with the NEXT batch (deeper / more advanced content,
+# see brain.generate_qa depth handling). Set via ROTATE_EVERY env. ---
+ROTATE_EVERY = int(os.environ.get("ROTATE_EVERY", "500"))
+
+# --- Answer DEPTH: every generated answer should be a long, comprehensive
+# explanation of roughly ANSWER_MIN_LINES..ANSWER_MAX_LINES lines so each topic
+# is covered thoroughly and gets 'ready' faster. ANSWER_MAX_TOKENS must be large
+# enough to actually fit that many lines. ---
+ANSWER_MIN_LINES = int(os.environ.get("ANSWER_MIN_LINES", "100"))
+ANSWER_MAX_LINES = int(os.environ.get("ANSWER_MAX_LINES", "150"))
+ANSWER_MAX_TOKENS = int(os.environ.get("ANSWER_MAX_TOKENS", "4096"))
 
 APP_REFERER = os.environ.get("APP_REFERER", "https://damru-ai.vercel.app")
