@@ -1,0 +1,5 @@
+# Damru Learning Engine deps
+# Core engine uses only the Python standard library (urllib, sqlite3, subprocess)
+# so it keeps running even if optional deps are missing.
+sympy>=1.12      # exact, verifiable maths (procedural verified track)
+requests>=2.31   # optional convenience (engine itself uses urllib)
