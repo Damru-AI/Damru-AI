@@ -1,0 +1,36 @@
+name: Damru Fine-Tune Ready Check
+
+on:
+  schedule:
+    - cron: '30 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install -q pandas pyarrow huggingface_hub
+      - name: Readiness check
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REPO: Damaru-ai/damru-knowledge
+          READY_TARGET: '2000000'
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python phase4/ready_check.py
+      - name: Commit progress banner
+        run: |
+          git config user.name "damru-bot"
+          git config user.email "bot@damru.ai"
+          git add TRAINING_PROGRESS.md FINE_TUNE_READY.md 2>/dev/null || true
+          git commit -m "chore: training progress [skip ci]" || echo "no changes"
+          git push || echo "push skipped"

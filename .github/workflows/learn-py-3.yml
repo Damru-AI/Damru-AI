@@ -1,0 +1,50 @@
+name: Damru Learn Python #3 (parallel)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '20 */6 * * *'   # safety net
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: damru-learn-py-3
+  cancel-in-progress: false
+
+jobs:
+  learn:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install -q -r phase5/requirements.txt
+      - name: Run Damru Python engine (~5.5h continuous)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_KEY }}
+          OPENROUTER_KEY: ${{ secrets.OPENROUTER_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_KEY: ${{ secrets.GEMINI_KEY }}
+          STACKEXCHANGE_KEY: ${{ secrets.STACKEXCHANGE_KEY }}
+          GENERAL_WORKERS: '8'
+          ANALYSIS_WORKERS: '3'
+          MATH_WORKERS: '3'
+          CODING_WORKERS: '12'
+          HINDI_WORKERS: '3'
+          EXAM_WORKERS: '3'
+          SHARD_ID: '2'
+          SHARD_TOTAL: '3'
+          MAX_RUNTIME_MIN: '330'
+        run: python phase5/run_engine.py
+      - name: Re-dispatch self (continuous loop)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run learn-py-3.yml -R "$GITHUB_REPOSITORY" || true
