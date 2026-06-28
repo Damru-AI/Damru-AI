@@ -96,7 +96,7 @@ def _accept_and_store(items, kind, subject=None):
         if subject:
             mastered = curriculum.record(subject, n, qsum / max(1, len(rows)))
             if mastered:
-                log("MASTERED subject: %s -> moving to next" % subject)
+                log("rotated subject: %s (500-row batch done) -> next" % subject)
     return n
 
 
