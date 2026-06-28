@@ -1,12 +1,15 @@
-name: Damru Learning Engine (continuous)
+name: Damru Learn (cron-chunked)
+
+# NOTE: For full 90K/day, run phase5/run_engine.py continuously on a VPS / PC /
+# Colab (see phase5/README.md). This workflow is a starter that learns in 110-min
+# chunks every 2 hours. GitHub Actions is NOT ideal for 24x7 heavy generation.
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 */6 * * *'   # safety net: heal the chain if it ever breaks
+    - cron: '0 */2 * * *'
 
 permissions:
-  actions: write
   contents: read
 
 concurrency:
@@ -16,25 +19,20 @@ concurrency:
 jobs:
   learn:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-python@v5
         with:
-          node-version: '20'
-      - name: Install embedding deps
-        run: npm init -y && npm i @xenova/transformers@2.17.2 --no-audit --no-fund
-      - name: Run Damru learning engine (~5.5h, learns every 60s)
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install -q -r phase5/requirements.txt
+      - name: Run learning engine (chunk)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          OPENROUTER_KEY: ${{ secrets.OPENROUTER_KEY }}
-          CYCLE_MS: '60000'
-          RUN_MINUTES: '330'
-        run: node learn/engine.js
-      - name: Re-dispatch self (continuous loop)
-        if: always()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run learn.yml -R "$GITHUB_REPOSITORY" || true
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          STACKEXCHANGE_KEY: ${{ secrets.STACKEXCHANGE_KEY }}
+          MAX_RUNTIME_MIN: '110'
+        run: python phase5/run_engine.py
         
