@@ -6,8 +6,8 @@ on:
   workflow_dispatch:
     inputs:
       apply:
-        description: 'Apply cleanup and rewrite HF? (false = report only)'
-        default: 'true'
+        description: 'Apply cleanup and rewrite HF? (true = delete dups, false = report only)'
+        default: 'false'
 
 permissions:
   contents: read
@@ -27,5 +27,5 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_REPO: Damaru-ai/damru-knowledge
-          APPLY: ${{ github.event.inputs.apply == 'false' && '0' || '1' }}
+          APPLY: ${{ github.event.inputs.apply == 'true' && '1' || '0' }}
         run: python phase4/dedup_audit.py
