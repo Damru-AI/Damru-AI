@@ -1,6 +1,7 @@
 """
 Exam-syllabus engine: generates syllabus-aligned exam-style Q&A with full worked
 solutions for JEE / NEET / UPSC / NCERT / SSC-Banking. A share is produced in Hindi.
+Answers are long + comprehensive (100-150 lines, see brain.length_clause).
 Crash-proof: returns fewer items on failure; never raises to the worker loop.
 """
 import random
@@ -33,9 +34,9 @@ def _gen_one():
     user = (
         "Exam: %s | Subject: %s | Topic: %s.\n\n"
         "Create ONE original, exam-standard question on this exact topic. %s. "
-        "%s End with a clearly marked final answer.\n\n"
+        "%s\n%s End with a clearly marked final answer.\n\n"
         "Reply ONLY as JSON: {\"question\": \"...\", \"answer\": \"...\"}"
-        % (exam, subject, topic, style, lang_line)
+        % (exam, subject, topic, style, brain.length_clause(), lang_line)
     )
     try:
         txt = brain.chat(
