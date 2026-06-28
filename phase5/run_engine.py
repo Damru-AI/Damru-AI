@@ -9,6 +9,8 @@ engine). Workers:
   - analysis: deep reasoning + self-check on the current subject.
   - math    : verified (sympy) + olympiad/JEE/MIT-style self-solved+checked.
   - coding  : 4X workers; problems solved AND executed to verify correctness.
+  - hindi   : exam-grade Q&A generated in Hindi / regional languages.
+  - exam    : syllabus-aligned Q&A for JEE/NEET/UPSC/NCERT/SSC-Banking.
 
 Every accepted item must pass the self-evaluation bar, which RISES as the dataset
 grows. Accepted rows go to Supabase; the hourly sync ships them to HuggingFace.
@@ -33,6 +35,8 @@ import curriculum
 import math_engine
 import coding_engine
 import analysis_engine
+import hindi_engine
+import exam_engine
 from sources import wikipedia, arxiv, stackexchange
 
 _STOP = threading.Event()
@@ -141,6 +145,32 @@ def coding_worker(wid):
             time.sleep(2)
 
 
+def hindi_worker(wid):
+    while not _STOP.is_set():
+        try:
+            subject = curriculum.current_subject()
+            lang = random.choice(config.REGIONAL_LANGS) if config.REGIONAL_LANGS else "hi"
+            items = hindi_engine.produce(subject, lang=lang, n=4)
+            n = _accept_and_store(items, "hindi", subject=subject)
+            log("hindi#%d %-20s [%s] +%d" % (wid, subject[:20], lang, n))
+            time.sleep(0.4)
+        except Exception as e:
+            log("hindi#%d ERR %s" % (wid, str(e)[:120]))
+            time.sleep(2)
+
+
+def exam_worker(wid):
+    while not _STOP.is_set():
+        try:
+            items = exam_engine.produce(n=4)
+            n = _accept_and_store(items, "exam")
+            log("exam#%d +%d" % (wid, n))
+            time.sleep(0.3)
+        except Exception as e:
+            log("exam#%d ERR %s" % (wid, str(e)[:120]))
+            time.sleep(2)
+
+
 def reporter():
     while not _STOP.is_set():
         for _ in range(30):
@@ -154,7 +184,7 @@ def reporter():
             % (total, total / el_h, rate_day, config.DAILY_TARGET,
                evaluator.dynamic_threshold(total), dict(STATS.by_kind)))
         for subj, cnt, mastered in curriculum.snapshot():
-            log("   %-28s %6d %s" % (subj, cnt, "✓" if mastered else ""))
+            log("   %-28s %6d %s" % (subj, cnt, "\u2713" if mastered else ""))
 
 
 def _handle_signal(signum, frame):
@@ -166,11 +196,12 @@ def main():
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
     log("Damru Learning Engine starting. target=%d/day" % config.DAILY_TARGET)
-    log("workers: general=%d analysis=%d math=%d coding=%d (coding=4X)"
+    log("workers: general=%d analysis=%d math=%d coding=%d hindi=%d exam=%d"
         % (config.GENERAL_WORKERS, config.ANALYSIS_WORKERS,
-           config.MATH_WORKERS, config.CODING_WORKERS))
+           config.MATH_WORKERS, config.CODING_WORKERS,
+           config.HINDI_WORKERS, config.EXAM_WORKERS))
     if not config.OPENROUTER_API_KEY:
-        log("WARNING: OPENROUTER_API_KEY not set -> analysis/math/coding limited; "
+        log("WARNING: OPENROUTER_API_KEY not set -> analysis/math/coding/hindi/exam limited; "
             "general harvest still works.")
 
     threads = []
@@ -182,6 +213,10 @@ def main():
         threads.append(threading.Thread(target=math_worker, args=(i,), daemon=True))
     for i in range(config.CODING_WORKERS):
         threads.append(threading.Thread(target=coding_worker, args=(i,), daemon=True))
+    for i in range(config.HINDI_WORKERS):
+        threads.append(threading.Thread(target=hindi_worker, args=(i,), daemon=True))
+    for i in range(config.EXAM_WORKERS):
+        threads.append(threading.Thread(target=exam_worker, args=(i,), daemon=True))
     threads.append(threading.Thread(target=reporter, daemon=True))
 
     for t in threads:
