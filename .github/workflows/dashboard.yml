@@ -1,0 +1,35 @@
+name: Damru Dashboard
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install -q pandas pyarrow huggingface_hub
+      - name: Build dashboard
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REPO: Damaru-ai/damru-knowledge
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python phase4/dashboard.py
+      - name: Commit dashboard
+        run: |
+          git config user.name "damru-bot"
+          git config user.email "bot@damru.ai"
+          git add damru_dashboard.html || true
+          git commit -m "chore: update dashboard [skip ci]" || echo "no changes"
+          git push || echo "push skipped"
