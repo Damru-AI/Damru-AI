@@ -1,5 +1,14 @@
 """
-Curriculum = the world's subjects, learned ONE AT A TIME until mastery, then next.
+Curriculum = the world's subjects, learned in a ROTATION.
+
+Rotation rule (user-requested):
+  - Stay on the current subject until ROTATE_EVERY (default 500) rows are accepted
+    for it, then move to the NEXT subject.
+  - When a full round over all subjects completes, the pointer wraps back to the
+    first subject and each subject CONTINUES with its next batch -> because its
+    cumulative count is higher, brain.generate_qa gets a higher `depth` and asks
+    progressively more advanced questions ('aage ka content').
+
 Progress persisted in sqlite so it resumes after restarts.
 
 Sharding: when SHARD_TOTAL > 1, each parallel engine covers a DISJOINT strided
@@ -59,6 +68,10 @@ def _ptr_key():
     return "ptr_%d_%d" % (config.SHARD_ID, config.SHARD_TOTAL) if config.SHARD_TOTAL > 1 else "ptr"
 
 
+def _batch_key():
+    return "batch_%d_%d" % (config.SHARD_ID, config.SHARD_TOTAL) if config.SHARD_TOTAL > 1 else "batch"
+
+
 def _conn():
     c = sqlite3.connect(_DB, timeout=30)
     c.execute(
@@ -70,45 +83,79 @@ def _conn():
     return c
 
 
+def _get_meta(c, k, default=0):
+    row = c.execute("SELECT v FROM meta WHERE k=?", (k,)).fetchone()
+    try:
+        return int(row[0]) if row else default
+    except Exception:
+        return default
+
+
+def _set_meta(c, k, v):
+    c.execute(
+        "INSERT INTO meta(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
+        (k, str(v)),
+    )
+
+
 def current_subject():
     pool = _pool()
     c = _conn()
     try:
-        row = c.execute("SELECT v FROM meta WHERE k=?", (_ptr_key(),)).fetchone()
-        ptr = int(row[0]) if row else 0
-        if ptr >= len(pool):
-            ptr = ptr % len(pool)  # wrap -> deeper passes
-        return pool[ptr]
+        ptr = _get_meta(c, _ptr_key(), 0)
+        return pool[ptr % len(pool)]
+    finally:
+        c.close()
+
+
+def depth_of(subject):
+    """How many full ROTATE_EVERY batches this subject has already completed.
+    Pass 0 = first time; higher = ask deeper/more advanced questions."""
+    c = _conn()
+    try:
+        row = c.execute("SELECT count FROM progress WHERE subject=?", (subject,)).fetchone()
+        cnt = int(row[0]) if row else 0
+        return cnt // max(1, config.ROTATE_EVERY)
     finally:
         c.close()
 
 
 def record(subject, n, quality):
-    """Add n mastered items to subject; advance pointer when mastery reached.
-    Returns True if the subject just got mastered."""
+    """Add n accepted rows to `subject`. Advance the rotation pointer once the
+    CURRENT subject accumulates ROTATE_EVERY rows in this visit.
+    Returns True if we just rotated to the next subject."""
     if n <= 0:
         return False
+    pool = _pool()
     c = _conn()
     try:
+        # cumulative per-subject stats (used for depth + mastered flag)
         c.execute(
             "INSERT INTO progress(subject,count,avg_quality) VALUES(?,?,?) "
             "ON CONFLICT(subject) DO UPDATE SET count=count+?, "
             "avg_quality=(avg_quality+?)/2",
             (subject, n, quality, n, quality),
         )
-        c.commit()
         cnt = c.execute("SELECT count FROM progress WHERE subject=?", (subject,)).fetchone()[0]
         if cnt >= config.MASTERY_TARGET:
             c.execute("UPDATE progress SET mastered=1 WHERE subject=?", (subject,))
-            row = c.execute("SELECT v FROM meta WHERE k=?", (_ptr_key(),)).fetchone()
-            ptr = (int(row[0]) if row else 0) + 1
-            c.execute(
-                "INSERT INTO meta(k,v) VALUES(?,?) "
-                "ON CONFLICT(k) DO UPDATE SET v=excluded.v",
-                (_ptr_key(), str(ptr)),
-            )
+        c.commit()
+
+        # Rotation is driven only by rows on the CURRENT pointer subject. Rows that
+        # a weak-subject override sent elsewhere still count for that subject's depth
+        # but do not skip the rotation pointer.
+        cur = pool[_get_meta(c, _ptr_key(), 0) % len(pool)]
+        if subject != cur:
+            return False
+        batch = _get_meta(c, _batch_key(), 0) + n
+        if batch >= config.ROTATE_EVERY:
+            ptr = _get_meta(c, _ptr_key(), 0) + 1
+            _set_meta(c, _ptr_key(), ptr)
+            _set_meta(c, _batch_key(), batch - config.ROTATE_EVERY)  # carry remainder
             c.commit()
             return True
+        _set_meta(c, _batch_key(), batch)
+        c.commit()
         return False
     finally:
         c.close()
