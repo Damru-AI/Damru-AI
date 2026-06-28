@@ -17,6 +17,18 @@ ANALYSIS_WORKERS = int(os.environ.get("ANALYSIS_WORKERS", "2"))
 MATH_WORKERS = int(os.environ.get("MATH_WORKERS", "2"))
 CODING_WORKERS = int(os.environ.get("CODING_WORKERS", "8"))  # 4X of math
 
+# NEW: Hindi / regional-language track + exam-syllabus track
+HINDI_WORKERS = int(os.environ.get("HINDI_WORKERS", "3"))
+EXAM_WORKERS = int(os.environ.get("EXAM_WORKERS", "3"))
+# Languages the Hindi track produces (comma sep). hi=Devanagari, hinglish=Roman Hindi.
+REGIONAL_LANGS = [
+    x.strip()
+    for x in os.environ.get("REGIONAL_LANGS", "hi,hinglish").split(",")
+    if x.strip()
+]
+# Share of exam questions generated in Hindi (0..1)
+EXAM_HINDI_RATIO = float(os.environ.get("EXAM_HINDI_RATIO", "0.25"))
+
 # 0 = run forever; otherwise stop after N minutes (use for cron-chunked runs)
 MAX_RUNTIME_MIN = int(os.environ.get("MAX_RUNTIME_MIN", "0"))
 
