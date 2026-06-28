@@ -30,11 +30,17 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_KEY }}
           OPENROUTER_KEY: ${{ secrets.OPENROUTER_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_KEY: ${{ secrets.GEMINI_KEY }}
           STACKEXCHANGE_KEY: ${{ secrets.STACKEXCHANGE_KEY }}
           GENERAL_WORKERS: '8'
           ANALYSIS_WORKERS: '3'
           MATH_WORKERS: '3'
           CODING_WORKERS: '12'
+          HINDI_WORKERS: '3'
+          EXAM_WORKERS: '3'
+          SHARD_ID: '0'
+          SHARD_TOTAL: '3'
           MAX_RUNTIME_MIN: '330'
         run: python phase5/run_engine.py
       - name: Re-dispatch self (continuous loop)
