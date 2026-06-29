@@ -1,0 +1,43 @@
+name: Damru Bulk Harvest (direct-to-HF)
+
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'Optional: run only some datasets (e.g. math,coding,medmcqa)'
+        required: false
+        default: ''
+      per_dataset:
+        description: 'Max kept rows per dataset per pass'
+        required: false
+        default: '1200000'
+  schedule:
+    - cron: '0 */3 * * *'   # every 3 hours: resume harvesting where it left off
+
+permissions:
+  contents: read
+
+concurrency:
+  group: damru-bulk-harvest
+  cancel-in-progress: false
+
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install -q datasets huggingface_hub requests
+      - name: Bulk harvest -> HuggingFace (Supabase bypassed)
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REPO: Damaru-ai/damru-knowledge
+          PER_DATASET: ${{ github.event.inputs.per_dataset || '1200000' }}
+          RUN_BUDGET_MIN: '320'
+          SHARD_SIZE: '100000'
+          ONLY: ${{ github.event.inputs.only }}
+        run: python phase7/bulk_harvest.py
