@@ -123,6 +123,30 @@ DATASETS = [
     {"id": "STEM-AI-mtl/Electrical-engineering", "kind": "qa",
      "q": ["input", "instruction", "question", "Question"],
      "a": ["output", "response", "answer", "Answer"], "intent": "engineering"},
+    # ===== EVERY-SUBJECT KNOWLEDGE (universe, pollution, farming, water, hunger,
+    #       history, culture, ecology, economy, development -- explanations) =====
+    {"id": "sentence-transformers/eli5", "kind": "qa",
+     "q": ["question", "title"], "a": ["answer", "response"], "intent": "general"},
+    {"id": "yahma/alpaca-cleaned", "kind": "qa",
+     "q": ["instruction"], "a": ["output"], "intent": "general"},
+    {"id": "WizardLMTeam/WizardLM_evol_instruct_V2_196k", "kind": "chat",
+     "conv": "conversations", "intent": "reasoning"},
+    {"id": "HuggingFaceH4/no_robots", "kind": "chat",
+     "conv": "messages", "intent": "general"},
+    # ===== SPACE AGENCIES + RESEARCH PAPERS (live APIs, resumable) =====
+    # NASA NTRS: 645k+ public NASA technical reports / papers across astrophysics,
+    # planetary science, aerodynamics, propulsion, life sciences, earth science.
+    {"id": "nasa-ntrs", "loader": "ntrs", "kind": "paper",
+     "paper_src": "NASA NTRS", "intent": "nasa_space"},
+    # arXiv: research from scientists across NASA/ESA/ISRO/JAXA/ROSCOSMOS/etc.
+    {"id": "arxiv-astro-ph", "loader": "arxiv", "arxiv_cat": "astro-ph",
+     "kind": "paper", "paper_src": "arXiv astrophysics", "intent": "astrophysics"},
+    {"id": "arxiv-space-ph", "loader": "arxiv", "arxiv_cat": "physics.space-ph",
+     "kind": "paper", "paper_src": "arXiv space physics", "intent": "space"},
+    {"id": "arxiv-geo-ph", "loader": "arxiv", "arxiv_cat": "physics.geo-ph",
+     "kind": "paper", "paper_src": "arXiv geophysics / earth science", "intent": "earth_science"},
+    {"id": "arxiv-gr-qc", "loader": "arxiv", "arxiv_cat": "gr-qc",
+     "kind": "paper", "paper_src": "arXiv relativity / cosmology", "intent": "physics"},
     # ===== MEDICAL / NURSING (Indian exams + nursing) =====
     {"id": "openlifescienceai/medmcqa", "kind": "medmcqa", "intent": "medical"},
     {"id": "NevenaD/MedNurse-QA", "kind": "qa",
@@ -246,6 +270,45 @@ def _from_choices(ex, spec):
     return qfull, ans
 
 
+def _from_paper(ex, spec):
+    """Build a knowledge Q/A from a research-paper record (NASA NTRS / arXiv).
+    Uses the abstract when present; otherwise a factual citation entry."""
+    title = re.sub(r"\s+", " ", str(ex.get("title") or "")).strip()
+    if len(title) < 6:
+        return "", ""
+    abs_ = re.sub(r"\s+", " ", str(ex.get("abstract") or ex.get("summary") or "")).strip()
+    names = []
+    aa = ex.get("authors") or ex.get("authorAffiliations")
+    if isinstance(aa, list):
+        for x in aa:
+            if isinstance(x, str):
+                names.append(x.strip())
+            elif isinstance(x, dict):
+                m = (x.get("meta") or {}).get("author") or {}
+                names.append((m.get("name") or x.get("name") or "").strip())
+    names = [n for n in names if n][:6]
+    pub = ""
+    pl = ex.get("publications")
+    if isinstance(pl, list) and pl and isinstance(pl[0], dict):
+        pub = (pl[0].get("publicationName") or "").strip()
+    src = spec.get("paper_src", "space research")
+    q = "Explain the research paper: %s" % title
+    meta = []
+    if names:
+        meta.append("Authors: " + ", ".join(names))
+    if pub:
+        meta.append("Published in: " + pub)
+    meta.append("Source: " + src)
+    if abs_:
+        a = abs_ + " (" + "; ".join(meta) + ")"
+    else:
+        a = "%s. A %s document%s%s." % (
+            title, src,
+            (" authored by " + ", ".join(names)) if names else "",
+            (", published in " + pub) if pub else "")
+    return q, a
+
+
 def _pair(ex, spec):
     kind = spec.get("kind", "qa")
     if kind == "chat":
@@ -254,6 +317,8 @@ def _pair(ex, spec):
         return _from_medmcqa(ex)
     if kind == "choices":
         return _from_choices(ex, spec)
+    if kind == "paper":
+        return _from_paper(ex, spec)
     q = _first(ex, spec.get("q"))
     a = _first(ex, spec.get("a"))
     if kind == "mcq" and spec.get("support"):
@@ -285,6 +350,7 @@ def _flush(api, buf, tag, idx):
     local = "/tmp/%s-%d.parquet" % (tag, idx)
     Dataset.from_list(buf).to_parquet(local)
     fname = "data/bulk-%s-%d-%03d.parquet" % (tag, int(time.time()), idx)
+    _throttle_commit()
     api.upload_file(path_or_fileobj=local, path_in_repo=fname,
                     repo_id=HF_REPO, repo_type="dataset")
     try:
@@ -309,6 +375,7 @@ def load_bloom():
 
 def save_bloom(api, bf):
     raw = bf.to_bytes()
+    _throttle_commit()
     api.upload_file(path_or_fileobj=io.BytesIO(raw), path_in_repo=BLOOM_FILE,
                     repo_id=HF_REPO, repo_type="dataset")
     print("  saved bloom (%.1f MB, n~=%d)" % (len(raw) / 1e6, bf.n), flush=True)
@@ -326,12 +393,32 @@ def read_state():
 
 def write_state(api, st):
     buf = json.dumps(st).encode()
+    _throttle_commit()
     api.upload_file(path_or_fileobj=io.BytesIO(buf), path_in_repo=STATE_FILE,
                     repo_id=HF_REPO, repo_type="dataset")
 
 
 _SENTINEL = object()
-FLUSH_BYTES = int(os.environ.get("FLUSH_BYTES", str(48 * 1024 * 1024)))
+FLUSH_BYTES = int(os.environ.get("FLUSH_BYTES", str(96 * 1024 * 1024)))
+
+# HuggingFace allows ~128 repo commits/hour. Every shard / bloom / state upload
+# is a commit, so we self-throttle to stay safely under the limit (never 429).
+_COMMITS = []
+COMMIT_LIMIT = int(os.environ.get("COMMIT_LIMIT", "115"))
+
+
+def _throttle_commit():
+    now = time.time()
+    while _COMMITS and now - _COMMITS[0] > 3600:
+        _COMMITS.pop(0)
+    if len(_COMMITS) >= COMMIT_LIMIT:
+        wait = int(3600 - (now - _COMMITS[0])) + 5
+        print("  HF commit-budget guard: sleeping %ds (stay < 128/hr)" % wait, flush=True)
+        time.sleep(max(1, wait))
+        now = time.time()
+        while _COMMITS and now - _COMMITS[0] > 3600:
+            _COMMITS.pop(0)
+    _COMMITS.append(time.time())
 
 
 def _lowmem_parquet_iter(repo_id, config, split):
@@ -380,10 +467,88 @@ def _run_with_timeout(fn, seconds):
     return box.get("r")
 
 
-def open_rows(spec):
-    """Unified, memory-safe row iterator. Try the low-mem parquet reader first
-    (bounded RAM); fall back to streaming load_dataset. Both are wrapped in a
-    load timeout so a hanging dataset is skipped instead of stalling for hours."""
+def _ntrs_iter(start=0):
+    """Stream NASA NTRS citations (645k+ public records) via the public API,
+    starting at offset `start` (resumable). Yields raw citation dicts."""
+    import json as _json
+    import urllib.request as _u
+    import urllib.parse as _up
+    frm = int(start)
+    hard = int(os.environ.get("NTRS_MAX", "200000"))
+    size = 100
+    while frm < hard:
+        url = "https://ntrs.nasa.gov/api/citations/search?" + _up.urlencode(
+            {"page.size": size, "page.from": frm})
+        req = _u.Request(url, headers={"User-Agent": "Mozilla/5.0 (DamruBot)"})
+        try:
+            d = _json.load(_u.urlopen(req, timeout=60))
+        except Exception as e:
+            print("  ntrs stop @%d: %s" % (frm, str(e)[:80]), flush=True)
+            break
+        res = d.get("results") or []
+        if not res:
+            break
+        for r in res:
+            yield r
+        frm += size
+        time.sleep(0.3)
+
+
+def _arxiv_iter(cat, start=0):
+    """Stream arXiv abstracts for a category via the export API (resumable).
+    Covers space/physics/earth research from scientists across NASA, ESA, ISRO,
+    JAXA, ROSCOSMOS, etc. Yields {title, abstract, authors}."""
+    import urllib.request as _u
+    import urllib.parse as _up
+    import xml.etree.ElementTree as ET
+    ns = {"a": "http://www.w3.org/2005/Atom"}
+    frm = int(start)
+    hard = int(os.environ.get("ARXIV_MAX", "50000"))
+    size = 100
+    empties = 0
+    while frm < hard:
+        url = "http://export.arxiv.org/api/query?" + _up.urlencode({
+            "search_query": "cat:%s" % cat, "start": frm, "max_results": size,
+            "sortBy": "submittedDate", "sortOrder": "descending"})
+        req = _u.Request(url, headers={"User-Agent": "Mozilla/5.0 (DamruBot)"})
+        try:
+            raw = _u.urlopen(req, timeout=60).read().decode("utf-8", "ignore")
+            root = ET.fromstring(raw)
+        except Exception as e:
+            print("  arxiv stop @%d: %s" % (frm, str(e)[:80]), flush=True)
+            break
+        ents = root.findall("a:entry", ns)
+        if not ents:
+            empties += 1
+            if empties >= 3:
+                break
+            time.sleep(3)
+            continue
+        empties = 0
+        for e in ents:
+            tt = e.find("a:title", ns)
+            ss = e.find("a:summary", ns)
+            names = [(a.find("a:name", ns).text or "").strip()
+                     for a in e.findall("a:author", ns)]
+            yield {"title": (tt.text if tt is not None else "") or "",
+                   "abstract": (ss.text if ss is not None else "") or "",
+                   "authors": names}
+        frm += size
+        time.sleep(3)   # arXiv asks ~3s between calls
+
+
+def open_rows(spec, start=0):
+    """Unified, memory-safe row iterator. Live-API loaders (NASA NTRS, arXiv)
+    first; then the low-mem parquet reader (bounded RAM); then streaming
+    load_dataset. HF paths are wrapped in a load timeout so a hanging dataset is
+    skipped instead of stalling for hours."""
+    loader = spec.get("loader")
+    if loader == "ntrs":
+        print("  [NASA NTRS API loader @ %d]" % start, flush=True)
+        return _ntrs_iter(start)
+    if loader == "arxiv":
+        print("  [arXiv API loader %s @ %d]" % (spec.get("arxiv_cat"), start), flush=True)
+        return _arxiv_iter(spec.get("arxiv_cat", "astro-ph"), start)
     rid, cfg = spec["id"], spec.get("config")
     split = spec.get("split", "train")
     try:
@@ -406,14 +571,17 @@ def open_rows(spec):
     return iter(ds)
 
 
-def process_dataset(api, spec, bf, deadline):
-    """Returns (inserted, completed). completed=False if stopped by budget."""
-    from datasets import load_dataset
+def process_dataset(api, spec, bf, deadline, st=None, key=None):
+    """Returns (inserted, completed). completed=False if stopped by budget.
+    For live-API loaders, a cursor in `st` makes scanning resumable across runs
+    so we never re-fetch the same API pages."""
     name = spec["id"] + ("/" + spec["config"] if spec.get("config") else "")
     tag = _safe_tag(spec)
+    is_api = bool(spec.get("loader"))
+    base = ((st or {}).get("cursor", {}) or {}).get(key, 0) if is_api else 0
     print("\n=== %s (cap %d) ===" % (name, PER_DATASET), flush=True)
     try:
-        row_source = open_rows(spec)
+        row_source = open_rows(spec, start=base)
     except Exception as e:
         print("  SKIP (load failed):", str(e)[:160], flush=True)
         return 0, True   # treat as done so we don't retry forever
@@ -442,7 +610,13 @@ def process_dataset(api, spec, bf, deadline):
                 idx += 1
                 buf = []
                 buf_bytes = 0
-                save_bloom(api, bf)            # persist dedup right after upload
+                # persist dedup + cursor PERIODICALLY (every 4 shards) to keep
+                # well under the HF 128-commits/hour budget
+                if idx % 4 == 0:
+                    save_bloom(api, bf)
+                    if is_api and st is not None and key is not None:
+                        st.setdefault("cursor", {})[key] = base + scanned
+                        write_state(api, st)
                 if inserted % 200000 == 0:
                     print("    ...%d kept (scanned %d)" % (inserted, scanned), flush=True)
                 if time.time() > deadline:
@@ -453,6 +627,12 @@ def process_dataset(api, spec, bf, deadline):
     if buf:
         _flush(api, buf, tag, idx)
         save_bloom(api, bf)
+    if is_api and st is not None and key is not None:
+        if completed:
+            (st.get("cursor", {}) or {}).pop(key, None)
+        else:
+            st.setdefault("cursor", {})[key] = base + scanned
+        write_state(api, st)
     print("  DONE %s -> +%d genuine rows (scanned %d, completed=%s)"
           % (name, inserted, scanned, completed), flush=True)
     return inserted, completed
@@ -523,7 +703,7 @@ def main():
         tried.add(key)
         st["tried"] = sorted(tried)
         write_state(api, st)
-        ins, completed = process_dataset(api, spec, bf, deadline)
+        ins, completed = process_dataset(api, spec, bf, deadline, st=st, key=key)
         st["total"] = st.get("total", 0) + ins
         save_bloom(api, bf)
         tried.discard(key)            # survived the load -> clear breadcrumb
