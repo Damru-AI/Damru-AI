@@ -75,8 +75,9 @@ DATASETS = [
     # ===== REASONING / SCIENCE INSTRUCTION (PhD-level thinking) =====
     {"id": "TIGER-Lab/WebInstructSub", "kind": "qa",
      "q": ["question"], "a": ["answer"], "intent": "reasoning"},
-    {"id": "open-thoughts/OpenThoughts-114k", "kind": "chat",
-     "conv": "conversations", "intent": "reasoning"},
+    # open-thoughts/OpenThoughts-114k REMOVED: its very long reasoning traces
+    # OOM-kill the free runner (shows as "operation was canceled"). The
+    # quarantine logic in main() also auto-skips any such heavy dataset.
     {"id": "Open-Orca/OpenOrca", "kind": "qa",
      "q": ["question"], "a": ["response"], "intent": "reasoning"},
     {"id": "garage-bAInd/Open-Platypus", "kind": "qa",
@@ -332,24 +333,39 @@ def main():
     st = read_state()
     seed_bloom_from_existing(api, bf, st)
     done = set(st.get("done", []))
+    tried = set(st.get("tried", []))
+    # Self-heal: a dataset STARTED last run but never finished almost certainly
+    # killed the runner (OOM / "operation was canceled"). Quarantine it so a
+    # resume steps PAST the poison pill instead of dying on it forever.
+    quarantined = tried - done
+    for q in sorted(quarantined):
+        print("quarantine (crashed a previous run -> skipping):", q, flush=True)
+    skip_set = done | quarantined
     pool = [d for d in DATASETS if (not ONLY or any(o in d["id"] for o in ONLY))]
     print("Damru BULK harvest | datasets=%d | per=%d | budget=%dmin | bypass=Supabase"
           % (len(pool), PER_DATASET, RUN_BUDGET_MIN), flush=True)
     deadline = time.time() + RUN_BUDGET_MIN * 60
     for spec in pool:
         key = spec["id"] + "::" + str(spec.get("config", "")) + "::" + spec.get("split", "train")
-        if key in done:
-            print("skip (done):", key, flush=True)
+        if key in skip_set:
+            print("skip:", key, flush=True)
             continue
         if time.time() > deadline:
             print("budget reached; will resume next run.", flush=True)
             break
+        # Breadcrumb on HF BEFORE the risky load. A hard OOM kill can't be caught
+        # in Python, so this persisted marker lets the next run quarantine it.
+        tried.add(key)
+        st["tried"] = sorted(tried)
+        write_state(api, st)
         ins, completed = process_dataset(api, spec, bf, deadline)
         st["total"] = st.get("total", 0) + ins
         save_bloom(api, bf)
+        tried.discard(key)            # survived the load -> clear breadcrumb
         if completed:
             done.add(key)
-            st["done"] = sorted(done)
+        st["done"] = sorted(done)
+        st["tried"] = sorted(tried)
         write_state(api, st)
         print("== %s -> +%d (running total ~%d) ==" % (key, ins, st["total"]), flush=True)
     print("\nRUN COMPLETE. cumulative bulk total ~%d rows" % st.get("total", 0), flush=True)
