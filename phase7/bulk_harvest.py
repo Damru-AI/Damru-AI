@@ -251,7 +251,7 @@ def process_dataset(api, spec, bf, deadline):
     try:
         ds = load_dataset(spec["id"], spec.get("config"),
                           split=spec.get("split", "train"),
-                          streaming=True, trust_remote_code=True)
+                          streaming=True)
     except Exception as e:
         print("  SKIP (load failed):", str(e)[:160], flush=True)
         return 0, True   # treat as done so we don't retry forever
