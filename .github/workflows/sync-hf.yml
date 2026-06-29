@@ -3,7 +3,7 @@ name: Damru Sync to HuggingFace
 on:
   workflow_dispatch:
   schedule:
-    - cron: '30 * * * *'   # EVERY HOUR: append Supabase -> HuggingFace
+    - cron: '/30 * * * *'   # EVERY HOUR: append Supabase -> HuggingFace
 
 permissions:
   contents: read
