@@ -4,11 +4,14 @@ Schema written matches the HF sync (question, answer, intent, lang, upvotes, cre
 intent encodes the subject/type; upvotes encodes quality (higher = better) for training weighting.
 Crash-proof: retries with backoff; marks dedup only AFTER a successful insert.
 
-SOURCE-LEVEL DEDUP (permanent): if you add a UNIQUE index on the normalized
-question in Supabase (see phase4/SUPABASE_DEDUP.sql), duplicate rows are rejected
-by the database with HTTP 409. A whole batch would normally fail on one conflict,
-so insert_batch() falls back to row-by-row insert on 409 and silently skips the
-conflicting (already-present) rows while still saving the new ones.
+SOURCE-LEVEL DEDUP (permanent + QUIET):
+  Supabase has a UNIQUE constraint on the generated column `qnorm`
+  (= md5(lower(btrim(question))), see phase4/SUPABASE_DEDUP_V2.sql).
+  We insert with  ?on_conflict=qnorm  and  Prefer: resolution=ignore-duplicates,
+  so duplicate rows are SILENTLY IGNORED by Postgres (ON CONFLICT DO NOTHING) instead
+  of raising a unique_violation. This means duplicate attempts no longer spam the DB
+  with errors (which previously made the instance 'Unhealthy'); the whole batch still
+  succeeds and only the genuinely new rows are stored.
 """
 import json
 import time
@@ -22,6 +25,9 @@ from datetime import datetime, timezone
 import config
 
 _DB = os.path.join(config.DATA_DIR, "seen.db")
+
+# Tell PostgREST which unique column to resolve conflicts on, and to ignore dupes.
+_CONFLICT_COL = "qnorm"
 
 
 def _conn():
@@ -73,8 +79,13 @@ def _headers():
         "apikey": config.SUPABASE_KEY,
         "Authorization": "Bearer " + config.SUPABASE_KEY,
         "Content-Type": "application/json",
-        "Prefer": "return=minimal",
+        # return=minimal -> no row echo; ignore-duplicates -> ON CONFLICT DO NOTHING (no error spam)
+        "Prefer": "return=minimal,resolution=ignore-duplicates",
     }
+
+
+def _endpoint():
+    return config.SUPABASE_URL + "/rest/v1/" + config.TABLE + "?on_conflict=" + _CONFLICT_COL
 
 
 def _post(url, payload):
@@ -90,7 +101,9 @@ def _post(url, payload):
 
 
 def _insert_one_by_one(url, rows):
-    """Insert rows individually; skip duplicates (409) and bad rows. Returns inserted count."""
+    """Fallback: insert rows individually; skip duplicates/bad rows. Returns inserted count.
+    With ignore-duplicates this is rarely needed, but kept as a safety net for older
+    databases that still have a plain UNIQUE index (which returns 409)."""
     inserted, ok_qs = 0, []
     for r in rows:
         status, info = _post(url, [r])
@@ -98,22 +111,20 @@ def _insert_one_by_one(url, rows):
             inserted += 1
             ok_qs.append(r["question"])
         elif status == "http" and info == 409:
-            # already present in DB (unique-index conflict) -> mark seen, skip
-            ok_qs.append(r["question"])
+            ok_qs.append(r["question"])  # already present -> mark seen, skip quietly
         elif status == "http" and info in (429, 500, 502, 503):
             time.sleep(0.8)
             status2, _ = _post(url, [r])
             if status2 == "ok":
                 inserted += 1
                 ok_qs.append(r["question"])
-        # other errors -> drop silently
     if ok_qs:
         _mark(ok_qs)
     return inserted
 
 
 def insert_batch(rows):
-    """Insert valid + de-duped rows. Returns number actually inserted."""
+    """Insert valid + de-duped rows. Returns number actually inserted (approx)."""
     clean = []
     seen_local = set()
     for r in rows:
@@ -134,21 +145,21 @@ def insert_batch(rows):
         # No DB configured (e.g. dry run) -> still mark to avoid repeats in-process
         _mark([r["question"] for r in clean])
         return len(clean)
-    url = config.SUPABASE_URL + "/rest/v1/" + config.TABLE
+    url = _endpoint()
     for attempt in range(4):
         status, info = _post(url, clean)
         if status == "ok":
+            # duplicates were silently ignored by the DB; new rows stored.
             _mark([r["question"] for r in clean])
             return len(clean)
         if status == "http":
             if info == 409:
-                # A duplicate exists in the batch vs the DB unique index. PostgREST
-                # fails the whole batch -> retry row-by-row, skipping duplicates.
+                # Old-style plain UNIQUE index (no ignore-duplicates support) ->
+                # fall back to per-row insert so one dupe doesn't fail the batch.
                 return _insert_one_by_one(url, clean)
             if info in (429, 500, 502, 503):
                 time.sleep(2 ** attempt)
                 continue
             return 0  # bad request etc -> don't loop forever
-        # network/other error -> backoff and retry
-        time.sleep(1.5 * (attempt + 1))
+        time.sleep(1.5 * (attempt + 1))  # network/other -> backoff + retry
     return 0
