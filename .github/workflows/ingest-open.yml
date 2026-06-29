@@ -1,0 +1,45 @@
+name: Damru Ingest Open Datasets (fast-fill)
+
+on:
+  workflow_dispatch:
+    inputs:
+      per_dataset:
+        description: 'Max rows per dataset'
+        required: false
+        default: '50000'
+      global_cap:
+        description: 'Stop after this many total inserts'
+        required: false
+        default: '500000'
+      only:
+        description: 'Optional: run only some datasets (e.g. math,camel,coding)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: damru-ingest-open
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install -q datasets huggingface_hub requests
+      - name: Ingest curated open datasets
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          PER_DATASET: ${{ github.event.inputs.per_dataset }}
+          GLOBAL_CAP: ${{ github.event.inputs.global_cap }}
+          ONLY: ${{ github.event.inputs.only }}
+        run: python phase6/ingest_open_datasets.py
