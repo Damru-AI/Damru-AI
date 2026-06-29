@@ -75,9 +75,10 @@ DATASETS = [
     # ===== REASONING / SCIENCE INSTRUCTION (PhD-level thinking) =====
     {"id": "TIGER-Lab/WebInstructSub", "kind": "qa",
      "q": ["question"], "a": ["answer"], "intent": "reasoning"},
-    # open-thoughts/OpenThoughts-114k REMOVED: its very long reasoning traces
-    # OOM-kill the free runner (shows as "operation was canceled"). The
-    # quarantine logic in main() also auto-skips any such heavy dataset.
+    # OpenThoughts-114k: long reasoning traces. Safe now via the low-mem parquet
+    # reader + byte-budget flush (previously OOM-killed the runner).
+    {"id": "open-thoughts/OpenThoughts-114k", "kind": "chat",
+     "conv": "conversations", "intent": "reasoning"},
     {"id": "Open-Orca/OpenOrca", "kind": "qa",
      "q": ["question"], "a": ["response"], "intent": "reasoning"},
     {"id": "garage-bAInd/Open-Platypus", "kind": "qa",
@@ -91,12 +92,37 @@ DATASETS = [
      "q": ["instruction"], "a": ["response"], "intent": "coding"},
     {"id": "glaiveai/glaive-code-assistant", "kind": "qa",
      "q": ["question"], "a": ["answer"], "intent": "coding"},
-    # ===== SCIENCE TUTOR DIALOGUES (CAMEL ~20k each) =====
-    {"id": "camel-ai/physics", "kind": "qa", "q": ["message_1"], "a": ["message_2"], "intent": "physics"},
-    {"id": "camel-ai/chemistry", "kind": "qa", "q": ["message_1"], "a": ["message_2"], "intent": "chemistry"},
-    {"id": "camel-ai/biology", "kind": "qa", "q": ["message_1"], "a": ["message_2"], "intent": "biology"},
-    {"id": "camel-ai/math", "kind": "qa", "q": ["message_1"], "a": ["message_2"], "intent": "math"},
-    {"id": "sciq", "kind": "mcq", "q": ["question"], "a": ["correct_answer"], "support": "support", "intent": "science"},
+    # ===== SCIENCE TUTOR DIALOGUES =====
+    # camel-ai/* and sciq REMOVED: they are old loading-script datasets (no
+    # parquet on the Hub), so on datasets v4 they error or HANG the runner.
+    # The load timeout in open_rows() also guards against such hangs.
+    # ===== ALL-SUBJECTS MCQ (MMLU 57 subjects; MMLU-Pro 14 incl engineering,
+    #       physics, math, chemistry, biology, economics, business, etc.) =====
+    {"id": "TIGER-Lab/MMLU-Pro", "kind": "choices", "split": "test",
+     "q": ["question"], "opts": ["options"], "ans": ["answer_index", "answer"],
+     "exp": ["cot_content"], "intent": "exam"},
+    {"id": "cais/mmlu", "config": "all", "split": "test", "kind": "choices",
+     "q": ["question"], "opts": ["choices"], "ans": ["answer"], "intent": "exam"},
+    {"id": "allenai/ai2_arc", "config": "ARC-Challenge", "kind": "choices",
+     "q": ["question"], "opts": ["choices"], "ans": ["answerKey"], "intent": "science"},
+    {"id": "allenai/ai2_arc", "config": "ARC-Easy", "kind": "choices",
+     "q": ["question"], "opts": ["choices"], "ans": ["answerKey"], "intent": "science"},
+    {"id": "allenai/openbookqa", "config": "main", "kind": "choices",
+     "q": ["question_stem", "question"], "opts": ["choices"], "ans": ["answerKey"], "intent": "science"},
+    # ===== SCIENCE JOURNALS + EXPERT Q&A (every subject: physics, chemistry,
+    #       biology, all engineering, earth science / oceanography, economics,
+    #       resource management, etc. -- StackExchange network + PubMed) =====
+    {"id": "lvwerra/stack-exchange-paired", "kind": "qa",
+     "q": ["question"], "a": ["response_j"], "intent": "reasoning"},
+    {"id": "qiaojin/PubMedQA", "config": "pqa_artificial", "kind": "qa",
+     "q": ["question"], "a": ["long_answer"], "intent": "medical"},
+    # ===== BROAD INSTRUCTION (all subjects + management + general knowledge) =====
+    {"id": "arcee-ai/The-Tome", "kind": "chat", "conv": "conversations", "intent": "reasoning"},
+    {"id": "databricks/databricks-dolly-15k", "kind": "qa",
+     "q": ["instruction"], "a": ["response"], "context": "context", "intent": "general"},
+    {"id": "STEM-AI-mtl/Electrical-engineering", "kind": "qa",
+     "q": ["input", "instruction", "question", "Question"],
+     "a": ["output", "response", "answer", "Answer"], "intent": "engineering"},
     # ===== MEDICAL / NURSING (Indian exams + nursing) =====
     {"id": "openlifescienceai/medmcqa", "kind": "medmcqa", "intent": "medical"},
     {"id": "NevenaD/MedNurse-QA", "kind": "qa",
@@ -161,12 +187,73 @@ def _from_medmcqa(ex):
     return qfull, ans
 
 
+def _from_choices(ex, spec):
+    """Generic MCQ across ALL subjects. Handles MMLU (choices list + int answer),
+    MMLU-Pro (options list + letter/answer_index), ARC & OpenBookQA
+    (choices={text,label} + answerKey letter/number)."""
+    q = _first(ex, spec.get("q", ["question", "question_stem"]))
+    if not q:
+        return "", ""
+    raw = None
+    for cf in (spec.get("opts") or ["choices", "options"]):
+        if ex.get(cf) is not None:
+            raw = ex.get(cf)
+            break
+    if raw is None:
+        return "", ""
+    texts, labels = [], []
+    if isinstance(raw, dict):
+        texts = [str(t).strip() for t in (raw.get("text") or raw.get("choices") or [])]
+        labels = [str(l).strip() for l in (raw.get("label") or [])]
+    elif isinstance(raw, (list, tuple)):
+        texts = [str(t).strip() for t in raw]
+    texts = [t for t in texts if t]
+    if len(texts) < 2:
+        return "", ""
+    letters = [chr(65 + i) for i in range(len(texts))]
+    if not labels or len(labels) != len(texts):
+        labels = letters
+    av = None
+    for af in (spec.get("ans") or ["answer_index", "answerKey", "answer", "label"]):
+        if ex.get(af) is not None and str(ex.get(af)).strip() != "":
+            av = ex.get(af)
+            break
+    if av is None or isinstance(av, bool):
+        return "", ""
+    ans_idx = None
+    if isinstance(av, int):
+        ans_idx = av
+    else:
+        s = str(av).strip()
+        if s in labels:
+            ans_idx = labels.index(s)
+        elif s.isdigit():
+            ans_idx = int(s)
+            if ans_idx not in range(len(texts)) and (ans_idx - 1) in range(len(texts)):
+                ans_idx -= 1
+        elif len(s) == 1 and s.upper() in letters:
+            ans_idx = letters.index(s.upper())
+    if ans_idx is None or ans_idx < 0 or ans_idx >= len(texts):
+        return "", ""
+    qfull = q + "\nOptions:\n" + "\n".join(
+        "%s) %s" % (letters[i], texts[i]) for i in range(len(texts)))
+    ans = "The correct answer is %s) %s." % (letters[ans_idx], texts[ans_idx])
+    for ef in (spec.get("exp") or ["cot_content", "explanation", "support", "exp"]):
+        e = ex.get(ef)
+        if e and str(e).strip():
+            ans += " " + str(e).strip()
+            break
+    return qfull, ans
+
+
 def _pair(ex, spec):
     kind = spec.get("kind", "qa")
     if kind == "chat":
         return _from_chat(ex, spec.get("conv", "conversations"))
     if kind == "medmcqa":
         return _from_medmcqa(ex)
+    if kind == "choices":
+        return _from_choices(ex, spec)
     q = _first(ex, spec.get("q"))
     a = _first(ex, spec.get("a"))
     if kind == "mcq" and spec.get("support"):
@@ -243,6 +330,82 @@ def write_state(api, st):
                     repo_id=HF_REPO, repo_type="dataset")
 
 
+_SENTINEL = object()
+FLUSH_BYTES = int(os.environ.get("FLUSH_BYTES", str(48 * 1024 * 1024)))
+
+
+def _lowmem_parquet_iter(repo_id, config, split):
+    """Yield dict rows by reading the dataset's parquet files in SMALL batches
+    via HfFileSystem -> bounded RAM even for huge / long-text datasets."""
+    import pyarrow.parquet as pq
+    from huggingface_hub import HfFileSystem
+    fs = HfFileSystem(token=HF_TOKEN)
+    split = split or "train"
+    cands = list(fs.glob("datasets/%s/**/*.parquet" % repo_id))
+    if not cands:
+        raise RuntimeError("no parquet files for %s" % repo_id)
+    sel = [f for f in cands if (("/%s/" % split) in f or ("/%s-" % split) in f
+                                or f.endswith("/%s.parquet" % split))]
+    if config:
+        cfg = [f for f in sel if ("/%s/" % config) in f or ("/%s-" % config) in f]
+        if cfg:
+            sel = cfg
+    for path in (sel or cands):
+        with fs.open(path, "rb") as fh:
+            pf = pq.ParquetFile(fh)
+            for batch in pf.iter_batches(batch_size=256):
+                for row in batch.to_pylist():
+                    yield row
+
+
+def _run_with_timeout(fn, seconds):
+    """Run fn() in a daemon thread; raise TimeoutError if it overruns. Keeps a
+    hanging / script-based dataset from freezing the whole run."""
+    import threading
+    box = {}
+
+    def _w():
+        try:
+            box["r"] = fn()
+        except BaseException as e:   # noqa
+            box["e"] = e
+
+    t = threading.Thread(target=_w, daemon=True)
+    t.start()
+    t.join(seconds)
+    if t.is_alive():
+        raise TimeoutError("timed out after %ss" % seconds)
+    if "e" in box:
+        raise box["e"]
+    return box.get("r")
+
+
+def open_rows(spec):
+    """Unified, memory-safe row iterator. Try the low-mem parquet reader first
+    (bounded RAM); fall back to streaming load_dataset. Both are wrapped in a
+    load timeout so a hanging dataset is skipped instead of stalling for hours."""
+    rid, cfg = spec["id"], spec.get("config")
+    split = spec.get("split", "train")
+    try:
+        it = _lowmem_parquet_iter(rid, cfg, split)
+        first = _run_with_timeout(lambda: next(it, _SENTINEL), 90)
+        if first is _SENTINEL:
+            return iter(())
+        print("  [low-mem parquet reader]", flush=True)
+
+        def _gen():
+            yield first
+            for r in it:
+                yield r
+        return _gen()
+    except Exception as e:
+        print("  low-mem reader off (%s); trying stream" % str(e)[:90], flush=True)
+    from datasets import load_dataset
+    ds = _run_with_timeout(
+        lambda: load_dataset(rid, cfg, split=split, streaming=True), 150)
+    return iter(ds)
+
+
 def process_dataset(api, spec, bf, deadline):
     """Returns (inserted, completed). completed=False if stopped by budget."""
     from datasets import load_dataset
@@ -250,16 +413,15 @@ def process_dataset(api, spec, bf, deadline):
     tag = _safe_tag(spec)
     print("\n=== %s (cap %d) ===" % (name, PER_DATASET), flush=True)
     try:
-        ds = load_dataset(spec["id"], spec.get("config"),
-                          split=spec.get("split", "train"),
-                          streaming=True)
+        row_source = open_rows(spec)
     except Exception as e:
         print("  SKIP (load failed):", str(e)[:160], flush=True)
         return 0, True   # treat as done so we don't retry forever
     buf, inserted, scanned, idx, completed = [], 0, 0, 0, True
+    buf_bytes = 0
     scan_cap = PER_DATASET * SCAN_MULT
     try:
-        for ex in ds:
+        for ex in row_source:
             scanned += 1
             if inserted >= PER_DATASET or scanned > scan_cap:
                 break
@@ -272,11 +434,14 @@ def process_dataset(api, spec, bf, deadline):
                 continue
             buf.append(make_row(q, a, spec.get("intent", "general"),
                                 lang=spec.get("lang", "en")))
+            buf_bytes += len(q) + len(a)
             inserted += 1
-            if len(buf) >= SHARD_SIZE:
+            # flush on row-count OR byte-budget (keeps long-text datasets safe)
+            if len(buf) >= SHARD_SIZE or buf_bytes >= FLUSH_BYTES:
                 _flush(api, buf, tag, idx)
                 idx += 1
                 buf = []
+                buf_bytes = 0
                 save_bloom(api, bf)            # persist dedup right after upload
                 if inserted % 200000 == 0:
                     print("    ...%d kept (scanned %d)" % (inserted, scanned), flush=True)
