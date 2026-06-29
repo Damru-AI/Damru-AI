@@ -292,6 +292,35 @@ def process_dataset(api, spec, bf, deadline):
     return inserted, completed
 
 
+def seed_bloom_from_existing(api, bf, st):
+    """One-time: teach the bloom EVERY question already on HF (live track +
+    phase6 ingested rows) so the bulk track never re-creates a duplicate of
+    what is already there. Runs only once (state['seeded'])."""
+    if st.get("seeded") or os.environ.get("SEED_FROM_HF", "true").lower() != "true":
+        return
+    from datasets import load_dataset
+    print("Seeding bloom from existing HF dataset (one-time)...", flush=True)
+    n = 0
+    try:
+        ds = load_dataset(HF_REPO, split="train", streaming=True)
+        for ex in ds:
+            if not isinstance(ex, dict):
+                continue
+            q = (ex.get("question") or "").strip()
+            if q:
+                bf.add(normalize(q))
+                n += 1
+                if n % 50000 == 0:
+                    print("  seeded %d existing rows" % n, flush=True)
+    except Exception as e:
+        print("  seed skipped (will dedup at training instead):", str(e)[:160], flush=True)
+        return
+    save_bloom(api, bf)
+    st["seeded"] = True
+    write_state(api, st)
+    print("Seeded bloom with %d existing questions." % n, flush=True)
+
+
 def main():
     if not HF_TOKEN:
         print("ERROR: set HF_TOKEN")
@@ -301,6 +330,7 @@ def main():
     api = _api()
     bf = load_bloom()
     st = read_state()
+    seed_bloom_from_existing(api, bf, st)
     done = set(st.get("done", []))
     pool = [d for d in DATASETS if (not ONLY or any(o in d["id"] for o in ONLY))]
     print("Damru BULK harvest | datasets=%d | per=%d | budget=%dmin | bypass=Supabase"
