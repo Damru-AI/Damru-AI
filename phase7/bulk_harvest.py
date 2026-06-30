@@ -217,6 +217,69 @@ DATASETS.append({"id": "openalex-top-science", "loader": "openalex",
                  "paper_src": "OpenAlex (top-cited global science)",
                  "intent": "research"})
 
+# ===== HOLY & ANCIENT BOOKS (India + world wisdom) =====================
+# Gives Damru a deep dharmic + world-wisdom base. Verse specs map the original
+# verse -> its translation/meaning; QA specs use direct question/answer pairs.
+_HOLY = [
+    {"id": "JDhruv14/Bhagavad-Gita-QA", "kind": "qa",
+     "q": ["question", "Question", "prompt", "instruction"],
+     "a": ["answer", "Answer", "response", "output"],
+     "intent": "scripture_gita", "license": "synthetic(GPT-4.1)+reviewed"},
+    {"id": "Abhaykoul/Ancient-Indian-Wisdom", "kind": "qa",
+     "q": ["question", "instruction", "Question", "input", "prompt"],
+     "a": ["answer", "output", "response", "Answer", "text"],
+     "intent": "indian_wisdom"},
+    {"id": "om-ashish-soni/vivechan-spritual-text-dataset-v3", "kind": "qa",
+     "q": ["question", "instruction", "prompt", "input", "title"],
+     "a": ["answer", "output", "response", "text", "content"],
+     "intent": "spiritual_texts"},
+    {"id": "BashitAli/Indian_history", "kind": "qa",
+     "q": ["question", "Question", "instruction", "prompt"],
+     "a": ["answer", "Answer", "output", "response"],
+     "intent": "indian_history"},
+    {"id": "siddharthjadhav6565/vedas", "kind": "verse", "book": "Vedas",
+     "intent": "vedas"},
+    {"id": "aaru2330/maha-epic", "kind": "verse", "book": "Mahabharata",
+     "intent": "mahabharata"},
+    {"id": "rahular/itihasa", "kind": "verse",
+     "book": "Ramayana and Mahabharata",
+     "src_f": ["sn", "sanskrit", "source"],
+     "mean_f": ["en", "english", "target"], "intent": "itihasa"},
+]
+for _h in _HOLY:
+    DATASETS.append(_h)
+
+# ===== CODING (ultra-pro: large-scale + reasoning + competitive) ========
+_CODE = [
+    {"id": "Modotte/CodeX-7M-Non-Thinking", "kind": "qa",
+     "q": ["instruction", "question", "prompt", "input", "problem"],
+     "a": ["output", "response", "solution", "answer", "code"],
+     "intent": "coding"},
+    {"id": "Modotte/CodeX-2M-Thinking", "kind": "qa",
+     "q": ["instruction", "question", "prompt", "input", "problem"],
+     "a": ["output", "response", "solution", "answer", "reasoning",
+           "thinking"], "intent": "coding_reasoning"},
+    {"id": "nvidia/Nemotron-SFT-Competitive-Programming-v2", "kind": "qa",
+     "q": ["problem", "question", "instruction", "input", "prompt"],
+     "a": ["solution", "reasoning_content", "response", "output", "answer"],
+     "intent": "competitive_coding",
+     "license": "NVIDIA-Open-Model(non-commercial)"},
+]
+for _c2 in _CODE:
+    DATASETS.append(_c2)
+
+# ===== AGENTIC / PLANNING / TOOL-USE (future-planning brain) ============
+# Teaches multi-step planning, tool/function calling, and self-reflection.
+_AGENT = [
+    {"id": "Salesforce/xlam-function-calling-60k", "kind": "qa",
+     "q": ["query", "question", "instruction", "input"],
+     "a": ["answers", "output", "response", "answer"], "intent": "tool_use"},
+    {"id": "THUDM/AgentInstruct", "kind": "chat", "conv": "conversations",
+     "intent": "agent_planning"},
+]
+for _ag in _AGENT:
+    DATASETS.append(_ag)
+
 
 def _api():
     from huggingface_hub import HfApi
@@ -369,6 +432,26 @@ def _from_paper(ex, spec):
     return q, a
 
 
+def _from_verse(ex, spec):
+    """Scripture/verse record -> Q/A. Maps <original verse> -> <translation/
+    meaning>; falls back to a teaching-explanation prompt for prose passages."""
+    src = _first(ex, spec.get("src_f") or
+                 ["sanskrit", "shloka", "sloka", "verse", "devanagari",
+                  "transliteration", "original", "sn", "text_sanskrit"])
+    mean = _first(ex, spec.get("mean_f") or
+                  ["translation", "meaning", "english", "explanation",
+                   "commentary", "answer", "output", "response", "en", "text"])
+    book = spec.get("book", spec.get("intent", "scripture"))
+    if src and mean and src.strip() != mean.strip():
+        q = "What is the meaning of this verse from the %s?\n\n%s" % (
+            book, src.strip())
+        return q, mean.strip()
+    body = mean or src
+    if body and len(body.strip()) >= 40:
+        return "Explain this teaching from the %s." % book, body.strip()
+    return "", ""
+
+
 def _pair(ex, spec):
     kind = spec.get("kind", "qa")
     if kind == "chat":
@@ -377,6 +460,8 @@ def _pair(ex, spec):
         return _from_medmcqa(ex)
     if kind == "choices":
         return _from_choices(ex, spec)
+    if kind == "verse":
+        return _from_verse(ex, spec)
     if kind == "paper":
         return _from_paper(ex, spec)
     q = _first(ex, spec.get("q"))
@@ -388,8 +473,30 @@ def _pair(ex, spec):
     return q, a
 
 
+def _quality_adjust(q, a, base):
+    """Content-aware quality score (no schema change; tunes the `upvotes` signal
+    so higher-signal rows can be preferred when building training mixes)."""
+    s = float(base)
+    la = len(a)
+    if "```" in a:            # contains a real code block
+        s += 0.12
+    if la >= 400:             # substantive, detailed answer
+        s += 0.08
+    elif la >= 180:
+        s += 0.04
+    if la < 60:               # thin / low-content
+        s -= 0.12
+    if q.strip().endswith("?"):
+        s += 0.02
+    low = a.lower()
+    if any(b in low for b in ("as an ai", "i cannot", "i am sorry",
+                              "i'm sorry", "lorem ipsum")):
+        s -= 0.25
+    return max(0.05, min(1.0, s))
+
+
 def make_row(q, a, intent, lang="en", quality=0.75):
-    uv = int(round(max(0.0, min(1.0, quality)) * 10))
+    uv = int(round(_quality_adjust(q, a, quality) * 10))
     return {
         "question": q.strip(),
         "answer": a.strip(),
