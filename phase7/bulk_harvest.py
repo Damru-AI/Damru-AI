@@ -260,6 +260,13 @@ _CODE = [
      "a": ["output", "response", "solution", "answer", "reasoning",
            "thinking"], "intent": "coding_reasoning"},
     {"id": "nvidia/Nemotron-SFT-Competitive-Programming-v2", "kind": "qa",
+     "split": "competitive_coding_python",
+     "q": ["problem", "question", "instruction", "input", "prompt"],
+     "a": ["solution", "reasoning_content", "response", "output", "answer"],
+     "intent": "competitive_coding",
+     "license": "NVIDIA-Open-Model(non-commercial)"},
+    {"id": "nvidia/Nemotron-SFT-Competitive-Programming-v2", "kind": "qa",
+     "split": "competitive_coding_cpp",
      "q": ["problem", "question", "instruction", "input", "prompt"],
      "a": ["solution", "reasoning_content", "response", "output", "answer"],
      "intent": "competitive_coding",
@@ -283,7 +290,7 @@ for _ag in _AGENT:
 # ===== DISTILLATION (frontier-mirroring synthetic SFT: reasoning + coding +
 # cyber + agentic + expert QA all in one high-signal pack) ===============
 _DISTILL = [
-    {"id": "WithinAI/claude_mythos_distilled_25k", "kind": "chat",
+    {"id": "WithinUsAI/claude_mythos_distilled_25k", "kind": "chat",
      "conv": "messages", "intent": "distilled_reasoning"},
 ]
 for _ds in _DISTILL:
