@@ -1,0 +1,32 @@
+name: Damru Restore Data
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "1 = only REPORT what would be restored, 0 = actually restore"
+        required: true
+        default: "1"
+      max_commits_scan:
+        description: "How many recent commits to scan for the richest shard set"
+        required: false
+        default: "150"
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: pip install -U huggingface_hub
+      - name: Restore deleted shards from HF git history
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REPO: Damaru-ai/damru-knowledge
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          MAX_COMMITS_SCAN: ${{ github.event.inputs.max_commits_scan }}
+        run: python phase7/restore_data.py
