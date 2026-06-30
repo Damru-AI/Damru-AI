@@ -176,14 +176,40 @@ def _ensure_repo(api, repo):
         print("  create_repo note:", str(e)[:120], flush=True)
 
 
+def _hf_upload(api, **kw):
+    """upload_file with retry/backoff against transient HF 5xx/429/504."""
+    last = None
+    for attempt in range(6):
+        try:
+            return api.upload_file(**kw)
+        except Exception as e:
+            last = e
+            s = str(e)
+            code = getattr(getattr(e, "response", None), "status_code", None)
+            transient = (
+                (code is not None and int(code) >= 500)
+                or "504" in s or "503" in s or "502" in s or "500" in s
+                or "429" in s or "Time-out" in s or "Timeout" in s
+                or "Gateway" in s or "Service Unavailable" in s
+            )
+            if not transient or attempt == 5:
+                raise
+            wait = min(120, 8 * (2 ** attempt))
+            print("  HF upload transient (%s) -> retry %d/5 in %ds"
+                  % (s[:70], attempt + 1, wait), flush=True)
+            time.sleep(wait)
+    if last:
+        raise last
+
+
 def _upload(api, repo, buf, tag, idx):
     from datasets import Dataset
     local = "/tmp/%s-%d.parquet" % (tag, idx)
     Dataset.from_list(buf).to_parquet(local)
     fname = "data/%s-%d-%03d.parquet" % (tag, int(time.time()), idx)
     _throttle()
-    api.upload_file(path_or_fileobj=local, path_in_repo=fname,
-                    repo_id=repo, repo_type="dataset")
+    _hf_upload(api, path_or_fileobj=local, path_in_repo=fname,
+               repo_id=repo, repo_type="dataset")
     try:
         os.remove(local)
     except Exception:
