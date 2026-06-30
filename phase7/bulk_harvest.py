@@ -517,24 +517,31 @@ def _hf_upload(api, **kw):
     503/429 on /commit; without this a single transient hiccup kills an
     otherwise-good multi-hour run (see the 504 that crashed write_state)."""
     last = None
-    for attempt in range(6):
+    attempts = int(os.environ.get("UPLOAD_ATTEMPTS", "9"))
+    cooldown = int(os.environ.get("COMMIT_COOLDOWN_SEC", "1900"))
+    for attempt in range(attempts):
         try:
             return api.upload_file(**kw)
         except Exception as e:
             last = e
             s = str(e)
             code = getattr(getattr(e, "response", None), "status_code", None)
+            # HF's HARD 128-commits/hour repo cap resets only after ~1 hour, so
+            # short backoff is useless -> sleep a long cooldown and retry.
+            hourly = ("per hour" in s or "repository commits" in s
+                      or "retry this action in about" in s)
             transient = (
-                (code is not None and int(code) >= 500)
+                hourly
+                or (code is not None and int(code) >= 500)
                 or "504" in s or "503" in s or "502" in s or "500" in s
                 or "429" in s or "Time-out" in s or "Timeout" in s
                 or "Gateway" in s or "Service Unavailable" in s
             )
-            if not transient or attempt == 5:
+            if not transient or attempt == attempts - 1:
                 raise
-            wait = min(120, 8 * (2 ** attempt))
-            print("  HF upload transient (%s) -> retry %d/5 in %ds"
-                  % (s[:70], attempt + 1, wait), flush=True)
+            wait = cooldown if hourly else min(120, 8 * (2 ** attempt))
+            print("  HF upload transient (%s) -> retry %d/%d in %ds"
+                  % (s[:70], attempt + 1, attempts, wait), flush=True)
             time.sleep(wait)
     if last:
         raise last
@@ -599,7 +606,10 @@ FLUSH_BYTES = int(os.environ.get("FLUSH_BYTES", str(96 * 1024 * 1024)))
 # HuggingFace allows ~128 repo commits/hour. Every shard / bloom / state upload
 # is a commit, so we self-throttle to stay safely under the limit (never 429).
 _COMMITS = []
-COMMIT_LIMIT = int(os.environ.get("COMMIT_LIMIT", "115"))
+# Default 60 (not 115): the 128/hr cap is SHARED with other workflows that also
+# commit to this repo (sync, learn, dashboard). Leaving ~half the budget free
+# prevents the combined total from tripping HF's hard limit.
+COMMIT_LIMIT = int(os.environ.get("COMMIT_LIMIT", "60"))
 
 
 def _throttle_commit():
