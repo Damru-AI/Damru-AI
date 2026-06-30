@@ -780,13 +780,20 @@ def _oa_get(url):
     mail = os.environ.get("OPENALEX_MAILTO", "research@damru.ai")
     req = _u.Request(url, headers={
         "User-Agent": "DamruAI/1.0 (+https://huggingface.co/Damaru-ai; mailto:%s)" % mail})
-    for attempt in range(6):
+    attempts = int(os.environ.get("OA_ATTEMPTS", "8"))
+    for attempt in range(attempts):
         try:
             return _json.load(_u.urlopen(req, timeout=90))
         except Exception as e:
             code = getattr(e, "code", None)
-            if code in (429, 403, 503, 500):
-                w = 15 * (attempt + 1)
+            if code in (429, 403, 503, 500, 502, 504):
+                ra = 0
+                try:
+                    ra = int((getattr(e, "headers", None) or {}).get(
+                        "Retry-After", "0") or 0)
+                except Exception:
+                    ra = 0
+                w = min(max(ra, 15 * (attempt + 1)), 120)
                 print("  openalex %s -> backoff %ds" % (code, w), flush=True)
                 time.sleep(w)
                 continue
@@ -795,8 +802,36 @@ def _oa_get(url):
     return None
 
 
+# Stable, public ROR ids for the famous institutes -> NO live lookup needed
+# (the lookup call was the thing getting 429'd and skipping whole institutes).
+_OA_ROR = {
+    "massachusetts institute of technology": "https://ror.org/042nb2s44",
+    "stanford university": "https://ror.org/00f54p054",
+    "harvard university": "https://ror.org/03vek6s52",
+    "california institute of technology": "https://ror.org/05dxps055",
+    "university of oxford": "https://ror.org/052gg0110",
+    "university of cambridge": "https://ror.org/013meh722",
+    "princeton university": "https://ror.org/00hx57361",
+    "university of california berkeley": "https://ror.org/01an7q238",
+    "eth zurich": "https://ror.org/05a28rw58",
+    "indian institute of science": "https://ror.org/04dese585",
+    "tsinghua university": "https://ror.org/03cve4549",
+    "university of tokyo": "https://ror.org/057zh3y96",
+    "max planck society": "https://ror.org/01hhn8329",
+    "european organization for nuclear research": "https://ror.org/01ggx4157",
+}
+
+
+def _norm_inst(name):
+    return re.sub(r"[^a-z0-9]+", " ", (name or "").lower()).strip()
+
+
 def _oa_ror(name):
-    """Resolve an institution name -> its ROR id via OpenAlex (best match)."""
+    """Resolve an institution name -> its ROR id. Hardcoded map first (no API
+    call, never 429s); live OpenAlex lookup only as a fallback."""
+    key = _norm_inst(name)
+    if key in _OA_ROR:
+        return _OA_ROR[key], name
     import urllib.parse as _up
     mail = os.environ.get("OPENALEX_MAILTO", "research@damru.ai")
     url = "https://api.openalex.org/institutions?" + _up.urlencode(
