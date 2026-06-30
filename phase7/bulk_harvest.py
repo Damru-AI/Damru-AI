@@ -46,15 +46,15 @@ from dedup_bloom import BloomFilter, normalize  # noqa: E402
 
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
 HF_REPO = os.environ.get("HF_REPO", "Damaru-ai/damru-knowledge")
-PER_DATASET = int(os.environ.get("PER_DATASET", "1200000"))
-SHARD_SIZE = int(os.environ.get("SHARD_SIZE", "100000"))
-RUN_BUDGET_MIN = int(os.environ.get("RUN_BUDGET_MIN", "320"))
-SCAN_MULT = int(os.environ.get("SCAN_MULT", "6"))
-MIN_Q = int(os.environ.get("MIN_Q", "8"))
-MIN_A = int(os.environ.get("MIN_A", "40"))
+PER_DATASET = int(os.environ.get("PER_DATASET") or "1200000")
+SHARD_SIZE = int(os.environ.get("SHARD_SIZE") or "100000")
+RUN_BUDGET_MIN = int(os.environ.get("RUN_BUDGET_MIN") or "320")
+SCAN_MULT = int(os.environ.get("SCAN_MULT") or "6")
+MIN_Q = int(os.environ.get("MIN_Q") or "8")
+MIN_A = int(os.environ.get("MIN_A") or "40")
 ONLY = [s.strip() for s in os.environ.get("ONLY", "").split(",") if s.strip()]
-BLOOM_CAP = int(os.environ.get("BLOOM_CAPACITY", "60000000"))
-BLOOM_ERR = float(os.environ.get("BLOOM_ERROR", "0.01"))
+BLOOM_CAP = int(os.environ.get("BLOOM_CAPACITY") or "60000000")
+BLOOM_ERR = float(os.environ.get("BLOOM_ERROR") or "0.01")
 BLOOM_FILE = "_dedup.bloom.gz"
 STATE_FILE = "_bulk_state.json"
 
@@ -279,6 +279,15 @@ _AGENT = [
 ]
 for _ag in _AGENT:
     DATASETS.append(_ag)
+
+# ===== DISTILLATION (frontier-mirroring synthetic SFT: reasoning + coding +
+# cyber + agentic + expert QA all in one high-signal pack) ===============
+_DISTILL = [
+    {"id": "WithinAI/claude_mythos_distilled_25k", "kind": "chat",
+     "conv": "messages", "intent": "distilled_reasoning"},
+]
+for _ds in _DISTILL:
+    DATASETS.append(_ds)
 
 
 def _api():
@@ -517,8 +526,8 @@ def _hf_upload(api, **kw):
     503/429 on /commit; without this a single transient hiccup kills an
     otherwise-good multi-hour run (see the 504 that crashed write_state)."""
     last = None
-    attempts = int(os.environ.get("UPLOAD_ATTEMPTS", "9"))
-    cooldown = int(os.environ.get("COMMIT_COOLDOWN_SEC", "1900"))
+    attempts = int(os.environ.get("UPLOAD_ATTEMPTS") or "9")
+    cooldown = int(os.environ.get("COMMIT_COOLDOWN_SEC") or "1900")
     for attempt in range(attempts):
         try:
             return api.upload_file(**kw)
@@ -601,7 +610,7 @@ def write_state(api, st):
 
 
 _SENTINEL = object()
-FLUSH_BYTES = int(os.environ.get("FLUSH_BYTES", str(96 * 1024 * 1024)))
+FLUSH_BYTES = int(os.environ.get("FLUSH_BYTES") or str(96 * 1024 * 1024))
 
 # HuggingFace allows ~128 repo commits/hour. Every shard / bloom / state upload
 # is a commit, so we self-throttle to stay safely under the limit (never 429).
@@ -609,7 +618,7 @@ _COMMITS = []
 # Default 60 (not 115): the 128/hr cap is SHARED with other workflows that also
 # commit to this repo (sync, learn, dashboard). Leaving ~half the budget free
 # prevents the combined total from tripping HF's hard limit.
-COMMIT_LIMIT = int(os.environ.get("COMMIT_LIMIT", "60"))
+COMMIT_LIMIT = int(os.environ.get("COMMIT_LIMIT") or "60")
 
 
 def _throttle_commit():
@@ -679,7 +688,7 @@ def _ntrs_iter(start=0):
     import urllib.request as _u
     import urllib.parse as _up
     frm = int(start)
-    hard = int(os.environ.get("NTRS_MAX", "200000"))
+    hard = int(os.environ.get("NTRS_MAX") or "200000")
     size = 100
     while frm < hard:
         url = "https://ntrs.nasa.gov/api/citations/search?" + _up.urlencode(
@@ -708,7 +717,7 @@ def _arxiv_iter(cat, start=0):
     import xml.etree.ElementTree as ET
     ns = {"a": "http://www.w3.org/2005/Atom"}
     frm = int(start)
-    hard = int(os.environ.get("ARXIV_MAX", "50000"))
+    hard = int(os.environ.get("ARXIV_MAX") or "50000")
     size = 100
     empties = 0
     while frm < hard:
@@ -780,7 +789,7 @@ def _oa_get(url):
     mail = os.environ.get("OPENALEX_MAILTO", "research@damru.ai")
     req = _u.Request(url, headers={
         "User-Agent": "DamruAI/1.0 (+https://huggingface.co/Damaru-ai; mailto:%s)" % mail})
-    attempts = int(os.environ.get("OA_ATTEMPTS", "8"))
+    attempts = int(os.environ.get("OA_ATTEMPTS") or "8")
     for attempt in range(attempts):
         try:
             return _json.load(_u.urlopen(req, timeout=90))
@@ -852,7 +861,7 @@ def _openalex_iter(spec, start_cursor="*"):
     publications}."""
     import urllib.parse as _up
     mail = os.environ.get("OPENALEX_MAILTO", "research@damru.ai")
-    hard = int(os.environ.get("OPENALEX_MAX", "300000"))
+    hard = int(os.environ.get("OPENALEX_MAX") or "300000")
     filters = ["has_abstract:true"]
     if spec.get("oa_inst"):
         ror, disp = _oa_ror(spec["oa_inst"])
