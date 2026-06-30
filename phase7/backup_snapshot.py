@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
 HF_REPO = os.environ.get("HF_REPO", "Damaru-ai/damru-knowledge")
-KEEP_TAGS = int(os.environ.get("KEEP_TAGS", "30"))
+KEEP_TAGS = int(os.environ.get("KEEP_TAGS") or "30")
 STATE_FILE = "_bulk_state.json"
 
 
