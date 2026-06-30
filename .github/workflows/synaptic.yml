@@ -1,0 +1,36 @@
+name: Damru Synaptic Memory (concept graph)
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_rows:
+        description: 'Rows to scan'
+        default: '2000000'
+      top_nodes:
+        description: 'Keep N strongest concepts'
+        default: '40000'
+  schedule:
+    - cron: '0 2 * * *'   # daily 02:00 UTC, after harvest
+
+concurrency:
+  group: damru-synaptic
+  cancel-in-progress: false
+
+jobs:
+  synaptic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 320
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install -U datasets huggingface_hub
+      - name: Build synaptic memory graph
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REPO: Damaru-ai/damru-knowledge
+          MAX_ROWS: ${{ github.event.inputs.max_rows }}
+          TOP_NODES: ${{ github.event.inputs.top_nodes }}
+        run: python phase7/synaptic_memory.py
