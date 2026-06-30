@@ -157,6 +157,66 @@ DATASETS = [
      "a": ["answer", "solution", "response", "output", "explanation"], "intent": "exam"},
 ]
 
+# ---- Programmatic bulk expansion (huge volume + breadth) -------------------
+# arXiv categories: millions of genuine research abstracts across every science
+# (CS/AI, math, biology, physics, chemistry, earth & ocean, economics, etc.).
+_ARXIV_CATS = {
+    "cs.AI": "artificial intelligence", "cs.LG": "machine learning",
+    "cs.CL": "natural language processing", "cs.CV": "computer vision",
+    "cs.CR": "cryptography & security", "cs.RO": "robotics",
+    "cs.DC": "distributed computing", "cs.NE": "neural & evolutionary computing",
+    "math.OC": "optimization & control", "math.PR": "probability",
+    "math.NA": "numerical analysis", "math.ST": "statistics theory",
+    "math.DS": "dynamical systems", "stat.ML": "statistical machine learning",
+    "stat.AP": "applied statistics", "q-bio.BM": "biomolecules",
+    "q-bio.NC": "neuroscience", "q-bio.PE": "populations & evolution",
+    "q-bio.GN": "genomics", "cond-mat.mtrl-sci": "materials science",
+    "cond-mat.stat-mech": "statistical mechanics",
+    "cond-mat.supr-con": "superconductivity",
+    "hep-ph": "high-energy particle physics", "hep-th": "theoretical physics",
+    "nucl-th": "nuclear theory", "quant-ph": "quantum physics",
+    "physics.med-ph": "medical physics", "physics.bio-ph": "biophysics",
+    "physics.chem-ph": "chemical physics", "physics.flu-dyn": "fluid dynamics",
+    "physics.ao-ph": "atmospheric & oceanic physics",
+    "physics.optics": "optics", "physics.plasm-ph": "plasma physics",
+    "physics.app-ph": "applied physics", "physics.soc-ph": "physics of society",
+    "eess.SP": "signal processing", "eess.SY": "systems & control",
+    "eess.IV": "image & video processing", "econ.GN": "general economics",
+    "q-fin.GN": "general finance",
+}
+for _c, _d in _ARXIV_CATS.items():
+    DATASETS.append({"id": "arxiv-" + _c.replace(".", "-"), "loader": "arxiv",
+                     "arxiv_cat": _c, "kind": "paper",
+                     "paper_src": "arXiv " + _d, "intent": "research"})
+
+# OpenAlex: 250M+ scholarly works, FREE, no key. Institution-filtered pulls give
+# the EXACT research output of MIT / IIT / AIIMS / world-famous institutes.
+_OA_INSTITUTES = [
+    "Massachusetts Institute of Technology", "Stanford University",
+    "Harvard University", "California Institute of Technology",
+    "University of Oxford", "University of Cambridge",
+    "Princeton University", "University of California, Berkeley",
+    "ETH Zurich", "Indian Institute of Science",
+    "Indian Institute of Technology Bombay",
+    "Indian Institute of Technology Delhi",
+    "Indian Institute of Technology Madras",
+    "Indian Institute of Technology Kanpur",
+    "Indian Institute of Technology Kharagpur",
+    "All India Institute of Medical Sciences",
+    "Tsinghua University", "University of Tokyo", "Max Planck Society",
+    "European Organization for Nuclear Research",
+]
+for _inst in _OA_INSTITUTES:
+    _slug = re.sub(r"[^a-z0-9]+", "-", _inst.lower()).strip("-")[:40]
+    DATASETS.append({"id": "openalex-" + _slug, "loader": "openalex",
+                     "kind": "paper", "oa_inst": _inst,
+                     "paper_src": _inst, "intent": "research_institute"})
+# Broad top-cited science across ALL fields (institution-agnostic).
+DATASETS.append({"id": "openalex-top-science", "loader": "openalex",
+                 "kind": "paper",
+                 "paper_src": "OpenAlex (top-cited global science)",
+                 "intent": "research"})
+
 
 def _api():
     from huggingface_hub import HfApi
@@ -510,12 +570,30 @@ def _arxiv_iter(cat, start=0):
         url = "http://export.arxiv.org/api/query?" + _up.urlencode({
             "search_query": "cat:%s" % cat, "start": frm, "max_results": size,
             "sortBy": "submittedDate", "sortOrder": "descending"})
-        req = _u.Request(url, headers={"User-Agent": "Mozilla/5.0 (DamruBot)"})
+        mail = os.environ.get("OPENALEX_MAILTO", "research@damru.ai")
+        req = _u.Request(url, headers={
+            "User-Agent": "DamruAI/1.0 (+https://huggingface.co/Damaru-ai; mailto:%s)" % mail})
+        raw = None
+        for attempt in range(6):
+            try:
+                raw = _u.urlopen(req, timeout=90).read().decode("utf-8", "ignore")
+                break
+            except Exception as e:
+                code = getattr(e, "code", None)
+                if code in (429, 403, 503, 500):
+                    w = 15 * (attempt + 1)
+                    print("  arxiv %s @%d -> backoff %ds" % (code, frm, w), flush=True)
+                    time.sleep(w)
+                    continue
+                print("  arxiv stop @%d: %s" % (frm, str(e)[:80]), flush=True)
+                raw = None
+                break
+        if raw is None:
+            break
         try:
-            raw = _u.urlopen(req, timeout=60).read().decode("utf-8", "ignore")
             root = ET.fromstring(raw)
         except Exception as e:
-            print("  arxiv stop @%d: %s" % (frm, str(e)[:80]), flush=True)
+            print("  arxiv parse stop @%d: %s" % (frm, str(e)[:80]), flush=True)
             break
         ents = root.findall("a:entry", ns)
         if not ents:
@@ -537,6 +615,106 @@ def _arxiv_iter(cat, start=0):
         time.sleep(3)   # arXiv asks ~3s between calls
 
 
+def _oa_abstract(inv):
+    """Reconstruct an abstract from an OpenAlex abstract_inverted_index."""
+    if not isinstance(inv, dict) or not inv:
+        return ""
+    pos = []
+    for word, idxs in inv.items():
+        if isinstance(idxs, list):
+            for i in idxs:
+                pos.append((i, word))
+    pos.sort()
+    return " ".join(w for _, w in pos)
+
+
+def _oa_get(url):
+    """GET a JSON OpenAlex page with a descriptive UA + 429 backoff."""
+    import json as _json
+    import urllib.request as _u
+    mail = os.environ.get("OPENALEX_MAILTO", "research@damru.ai")
+    req = _u.Request(url, headers={
+        "User-Agent": "DamruAI/1.0 (+https://huggingface.co/Damaru-ai; mailto:%s)" % mail})
+    for attempt in range(6):
+        try:
+            return _json.load(_u.urlopen(req, timeout=90))
+        except Exception as e:
+            code = getattr(e, "code", None)
+            if code in (429, 403, 503, 500):
+                w = 15 * (attempt + 1)
+                print("  openalex %s -> backoff %ds" % (code, w), flush=True)
+                time.sleep(w)
+                continue
+            print("  openalex stop: %s" % str(e)[:90], flush=True)
+            return None
+    return None
+
+
+def _oa_ror(name):
+    """Resolve an institution name -> its ROR id via OpenAlex (best match)."""
+    import urllib.parse as _up
+    mail = os.environ.get("OPENALEX_MAILTO", "research@damru.ai")
+    url = "https://api.openalex.org/institutions?" + _up.urlencode(
+        {"search": name, "per-page": 1, "mailto": mail})
+    d = _oa_get(url)
+    res = (d or {}).get("results") or []
+    if res:
+        rid = res[0].get("ror") or res[0].get("id") or ""
+        return rid, (res[0].get("display_name") or name)
+    return "", name
+
+
+def _openalex_iter(spec, start_cursor="*"):
+    """Stream works from OpenAlex (250M+ scholarly works, free, no key). Filter
+    by institution (MIT / IIT / AIIMS / any world institute) and/or concept;
+    rebuild the abstract from its inverted index. Cursor-resumable: writes
+    spec['_oa_cursor'] as it advances. Yields {title, abstract, authors,
+    publications}."""
+    import urllib.parse as _up
+    mail = os.environ.get("OPENALEX_MAILTO", "research@damru.ai")
+    hard = int(os.environ.get("OPENALEX_MAX", "300000"))
+    filters = ["has_abstract:true"]
+    if spec.get("oa_inst"):
+        ror, disp = _oa_ror(spec["oa_inst"])
+        if not ror:
+            print("  openalex: no ROR for %s -> skip" % spec["oa_inst"], flush=True)
+            return
+        filters.append("institutions.ror:" + ror)
+        print("  [OpenAlex %s -> %s]" % (disp, ror), flush=True)
+    if spec.get("oa_concept"):
+        filters.append("concepts.id:" + spec["oa_concept"])
+    cursor = start_cursor or "*"
+    seen = 0
+    while cursor and seen < hard:
+        url = "https://api.openalex.org/works?" + _up.urlencode({
+            "filter": ",".join(filters), "per-page": 200, "cursor": cursor,
+            "mailto": mail, "sort": "cited_by_count:desc"})
+        d = _oa_get(url)
+        if not d:
+            return
+        res = d.get("results") or []
+        if not res:
+            break
+        for w in res:
+            names = []
+            for au in (w.get("authorships") or [])[:6]:
+                nm = ((au.get("author") or {}).get("display_name") or "").strip()
+                if nm:
+                    names.append(nm)
+            src = (w.get("primary_location") or {}).get("source") or {}
+            venue = (src.get("display_name") or "").strip()
+            yield {
+                "title": w.get("title") or w.get("display_name") or "",
+                "abstract": _oa_abstract(w.get("abstract_inverted_index")),
+                "authors": names,
+                "publications": [{"publicationName": venue}] if venue else [],
+            }
+            seen += 1
+        cursor = (d.get("meta") or {}).get("next_cursor")
+        spec["_oa_cursor"] = cursor or ""
+        time.sleep(0.2)
+
+
 def open_rows(spec, start=0):
     """Unified, memory-safe row iterator. Live-API loaders (NASA NTRS, arXiv)
     first; then the low-mem parquet reader (bounded RAM); then streaming
@@ -549,6 +727,9 @@ def open_rows(spec, start=0):
     if loader == "arxiv":
         print("  [arXiv API loader %s @ %d]" % (spec.get("arxiv_cat"), start), flush=True)
         return _arxiv_iter(spec.get("arxiv_cat", "astro-ph"), start)
+    if loader == "openalex":
+        sc = start if (isinstance(start, str) and start) else "*"
+        return _openalex_iter(spec, start_cursor=sc)
     rid, cfg = spec["id"], spec.get("config")
     split = spec.get("split", "train")
     try:
@@ -569,6 +750,17 @@ def open_rows(spec, start=0):
     ds = _run_with_timeout(
         lambda: load_dataset(rid, cfg, split=split, streaming=True), 150)
     return iter(ds)
+
+
+def _resume_val(spec, base, scanned):
+    """Next-run resume token. OpenAlex advances an opaque cursor (written to
+    spec['_oa_cursor']); offset loaders (NTRS / arXiv) use an integer offset."""
+    if spec.get("loader") == "openalex":
+        return spec.get("_oa_cursor") or "*"
+    try:
+        return int(base) + scanned
+    except Exception:
+        return scanned
 
 
 def process_dataset(api, spec, bf, deadline, st=None, key=None):
@@ -615,7 +807,7 @@ def process_dataset(api, spec, bf, deadline, st=None, key=None):
                 if idx % 4 == 0:
                     save_bloom(api, bf)
                     if is_api and st is not None and key is not None:
-                        st.setdefault("cursor", {})[key] = base + scanned
+                        st.setdefault("cursor", {})[key] = _resume_val(spec, base, scanned)
                         write_state(api, st)
                 if inserted % 200000 == 0:
                     print("    ...%d kept (scanned %d)" % (inserted, scanned), flush=True)
@@ -631,7 +823,7 @@ def process_dataset(api, spec, bf, deadline, st=None, key=None):
         if completed:
             (st.get("cursor", {}) or {}).pop(key, None)
         else:
-            st.setdefault("cursor", {})[key] = base + scanned
+            st.setdefault("cursor", {})[key] = _resume_val(spec, base, scanned)
         write_state(api, st)
     print("  DONE %s -> +%d genuine rows (scanned %d, completed=%s)"
           % (name, inserted, scanned, completed), flush=True)
