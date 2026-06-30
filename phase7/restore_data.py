@@ -23,7 +23,7 @@ import time
 
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
 HF_REPO = os.environ.get("HF_REPO", "Damaru-ai/damru-knowledge")
-MAX_COMMITS_SCAN = int(os.environ.get("MAX_COMMITS_SCAN", "150"))
+MAX_COMMITS_SCAN = int(os.environ.get("MAX_COMMITS_SCAN") or "150")
 DRY_RUN = os.environ.get("DRY_RUN", "0") == "1"
 
 
