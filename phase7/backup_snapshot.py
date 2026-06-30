@@ -33,10 +33,22 @@ def main():
         with open(p) as f:
             st = json.load(f)
         total = st.get("total", 0)
-        api.upload_file(
-            path_or_fileobj=io.BytesIO(json.dumps(st, indent=2).encode()),
-            path_in_repo="snapshots/state-%s.json" % stamp,
-            repo_id=HF_REPO, repo_type="dataset")
+        for attempt in range(6):
+            try:
+                api.upload_file(
+                    path_or_fileobj=io.BytesIO(
+                        json.dumps(st, indent=2).encode()),
+                    path_in_repo="snapshots/state-%s.json" % stamp,
+                    repo_id=HF_REPO, repo_type="dataset")
+                break
+            except Exception as e:
+                s = str(e)
+                transient = any(x in s for x in
+                                ("504", "503", "502", "500", "429",
+                                 "Time-out", "Timeout", "Gateway"))
+                if not transient or attempt == 5:
+                    raise
+                time.sleep(min(120, 8 * (2 ** attempt)))
         print("Snapshotted state (total=%s rows)" % total, flush=True)
     except Exception as e:
         print("state snapshot skipped:", str(e)[:140], flush=True)
