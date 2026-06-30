@@ -100,9 +100,23 @@ class Gen:
         return self.tok.decode(gen, skip_special_tokens=True)
 
 
-def eval_humaneval(gen, limit):
+def _load_bench(candidates, split):
+    """Newer datasets/hub require 'namespace/name'; bare ids raise HfUriError.
+    Try each canonical id until one loads."""
     from datasets import load_dataset
-    data = load_dataset("openai_humaneval", split="test")
+    last = None
+    for cid in candidates:
+        try:
+            return load_dataset(cid, split=split)
+        except Exception as e:
+            last = e
+            print("  load %s failed: %s" % (cid, str(e)[:90]), flush=True)
+    raise last
+
+
+def eval_humaneval(gen, limit):
+    data = _load_bench(
+        ["openai/openai_humaneval", "openai_humaneval"], "test")
     n = ok = 0
     for ex in data:
         if limit and n >= limit:
@@ -123,8 +137,8 @@ def eval_humaneval(gen, limit):
 
 
 def eval_mbpp(gen, limit):
-    from datasets import load_dataset
-    data = load_dataset("mbpp", split="test")
+    data = _load_bench(
+        ["google-research-datasets/mbpp", "Muennighoff/mbpp", "mbpp"], "test")
     n = ok = 0
     for ex in data:
         if limit and n >= limit:
