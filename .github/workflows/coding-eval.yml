@@ -1,0 +1,37 @@
+name: Damru Coding Eval
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Model HF id / path to score
+        default: "unsloth/Qwen2.5-Coder-3B-Instruct"
+      bench:
+        description: humaneval | mbpp | both
+        default: "both"
+      max_tasks:
+        description: Cap tasks per benchmark (0=all)
+        default: "60"
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: pip install -U torch transformers datasets huggingface_hub accelerate
+      - name: Run coding benchmarks
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          MODEL: ${{ inputs.model }}
+          BENCH: ${{ inputs.bench }}
+          MAX_TASKS: ${{ inputs.max_tasks }}
+          DEVICE: "cpu"
+          RESULT_REPO: "Damaru-ai/damru-scorecards"
+        run: python eval/coding_eval.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coding-scorecard
+          path: coding_scorecard.json

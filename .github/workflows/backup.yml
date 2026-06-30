@@ -1,0 +1,21 @@
+name: Damru Backup Snapshot
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 0 * * *"
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: pip install -U huggingface_hub
+      - name: Snapshot + tag dataset
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          KEEP_TAGS: "30"
+        run: python phase7/backup_snapshot.py

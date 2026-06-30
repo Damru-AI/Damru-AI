@@ -1,0 +1,33 @@
+name: Damru Code Lab
+on:
+  workflow_dispatch:
+    inputs:
+      lab_max:
+        description: Max problems to attempt
+        default: "40000"
+      make_dpo:
+        description: Emit DPO triples (1/0)
+        default: "1"
+  schedule:
+    - cron: "30 2 * * *"
+concurrency:
+  group: damru-code-lab
+  cancel-in-progress: false
+jobs:
+  lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: pip install -U datasets huggingface_hub pyarrow
+      - name: Run Code Execution Lab
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          LAB_MAX: ${{ inputs.lab_max }}
+          MAKE_DPO: ${{ inputs.make_dpo }}
+          RUN_MIN: "300"
+        run: python phase7/code_lab.py
