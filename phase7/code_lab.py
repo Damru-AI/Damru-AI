@@ -52,11 +52,11 @@ HF_REPO = os.environ.get("HF_REPO", "Damaru-ai/damru-knowledge")
 DPO_REPO = os.environ.get("DPO_REPO", "Damaru-ai/damru-dpo")
 SRC_DATASET = os.environ.get("SRC_DATASET", "nvidia/OpenCodeInstruct")
 SRC_SPLIT = os.environ.get("SRC_SPLIT", "train")
-LAB_MAX = int(os.environ.get("LAB_MAX", "40000"))
-EXEC_TIMEOUT = int(os.environ.get("EXEC_TIMEOUT", "8"))
-EXEC_MEM_MB = int(os.environ.get("EXEC_MEM_MB", "512"))
-SHARD = int(os.environ.get("SHARD", "5000"))
-RUN_MIN = int(os.environ.get("RUN_MIN", "300"))
+LAB_MAX = int(os.environ.get("LAB_MAX") or "40000")
+EXEC_TIMEOUT = int(os.environ.get("EXEC_TIMEOUT") or "8")
+EXEC_MEM_MB = int(os.environ.get("EXEC_MEM_MB") or "512")
+SHARD = int(os.environ.get("SHARD") or "5000")
+RUN_MIN = int(os.environ.get("RUN_MIN") or "300")
 MAKE_DPO = os.environ.get("MAKE_DPO", "1") == "1"
 
 Q_FIELDS = ["instruction", "problem", "question", "prompt", "input"]
