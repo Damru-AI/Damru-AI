@@ -1,0 +1,32 @@
+name: Damru Dedup Audit (low-mem)
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_rows:
+        description: 'Scan limit (0=all)'
+        default: '0'
+  schedule:
+    - cron: '30 3 * * *'
+
+concurrency:
+  group: damru-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install -U datasets huggingface_hub
+      - name: Dedup + quality audit
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          SRC_REPO: Damaru-ai/damru-knowledge
+          MAX_ROWS: ${{ github.event.inputs.max_rows }}
+        run: python phase4/dedup_audit.py

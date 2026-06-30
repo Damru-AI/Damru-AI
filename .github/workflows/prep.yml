@@ -1,0 +1,39 @@
+name: Damru Prep Training Data
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_per_domain:
+        description: 'Cap rows per domain in train'
+        default: '900000'
+      decon:
+        description: 'Decontaminate vs benchmarks (1/0)'
+        default: '1'
+      max_rows:
+        description: 'Scan limit (0=all)'
+        default: '0'
+
+concurrency:
+  group: damru-prep
+  cancel-in-progress: false
+
+jobs:
+  prep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install -U datasets huggingface_hub pyarrow
+      - name: Prep training data
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          SRC_REPO: Damaru-ai/damru-knowledge
+          OUT_REPO: Damaru-ai/damru-train
+          MAX_PER_DOMAIN: ${{ github.event.inputs.max_per_domain }}
+          DECON: ${{ github.event.inputs.decon }}
+          MAX_ROWS: ${{ github.event.inputs.max_rows }}
+        run: python phase4/prep_training_data.py
