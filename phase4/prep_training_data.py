@@ -243,7 +243,11 @@ def main():
     rows = 0
     t0 = time.time()
 
-    ds = load_dataset(SRC_REPO, split="train", streaming=True)
+    # NOTE: the dataset README pins the "train" split to data/train-*.parquet,
+    # which HIDES all harvested data/bulk-*.parquet shards. Pass data_files
+    # explicitly so EVERY shard (train-* + bulk-*) is read.
+    ds = load_dataset(SRC_REPO, data_files="data/*.parquet",
+                      split="train", streaming=True)
     for ex in ds:
         rows += 1
         if MAX_ROWS and rows > MAX_ROWS:
