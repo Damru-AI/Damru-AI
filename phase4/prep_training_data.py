@@ -47,7 +47,7 @@ VAL_FRAC = float(os.environ.get("VAL_FRAC") or "0.01")
 TEST_FRAC = float(os.environ.get("TEST_FRAC") or "0.01")
 MAX_PER_DOMAIN = int(os.environ.get("MAX_PER_DOMAIN") or "900000")
 SHARD_SIZE = int(os.environ.get("SHARD_SIZE") or "50000")
-DECON = (os.environ.get("DECON", "1") == "1")
+DECON = ((os.environ.get("DECON") or "1") == "1")
 MAX_ROWS = int(os.environ.get("MAX_ROWS") or "0")
 SYS_PROMPT = os.environ.get(
     "SYS_PROMPT",
