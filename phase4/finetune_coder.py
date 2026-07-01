@@ -36,7 +36,7 @@ DATA_REPO = os.environ.get("DATA_REPO", "Damaru-ai/damru-knowledge")
 DPO_REPO = os.environ.get("DPO_REPO", "Damaru-ai/damru-dpo")
 OUT_REPO = os.environ.get("OUT_REPO", "Damaru-ai/damru-coder-lora")
 MAX_ROWS = int(os.environ.get("MAX_ROWS", "200000"))
-DO_DPO = os.environ.get("DO_DPO", "1") == "1"
+DO_DPO = (os.environ.get("DO_DPO") or "1") == "1"
 EPOCHS = float(os.environ.get("EPOCHS", "1"))
 MAXLEN = int(os.environ.get("MAXLEN", "2048"))
 
