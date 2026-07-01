@@ -1,0 +1,30 @@
+name: Damru Build RAG Index
+on:
+  workflow_dispatch:
+    inputs:
+      max_index:
+        description: "Max rows to index (0 = all)"
+        default: "200000"
+      max_per_domain:
+        description: "Cap per dominant domain"
+        default: "60000"
+  schedule:
+    - cron: "0 4 * * 0"
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: pip install -U datasets huggingface_hub sentence-transformers faiss-cpu pyarrow
+      - name: Build RAG index
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          INDEX_REPO: Damaru-ai/damru-rag-index
+          MAX_INDEX: ${{ inputs.max_index }}
+          MAX_PER_DOMAIN: ${{ inputs.max_per_domain }}
+        run: python serve/build_index.py
