@@ -1036,7 +1036,8 @@ def seed_bloom_from_existing(api, bf, st):
     print("Seeding bloom from existing HF dataset (one-time)...", flush=True)
     n = 0
     try:
-        ds = load_dataset(HF_REPO, split="train", streaming=True)
+        ds = load_dataset(HF_REPO, data_files="data/*.parquet",
+                          split="train", streaming=True)
         for ex in ds:
             if not isinstance(ex, dict):
                 continue
