@@ -86,7 +86,9 @@ def main():
     a_len = Counter()
     t0 = time.time()
 
-    ds = load_dataset(SRC_REPO, split="train", streaming=True)
+    # Read ALL shards (train-* + bulk-*); README config otherwise hides bulk-*.
+    ds = load_dataset(SRC_REPO, data_files="data/*.parquet",
+                      split="train", streaming=True)
     for ex in ds:
         rows += 1
         if MAX_ROWS and rows > MAX_ROWS:
