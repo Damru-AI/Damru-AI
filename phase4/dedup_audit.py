@@ -35,7 +35,7 @@ HF_TOKEN = os.environ.get("HF_TOKEN", "")
 SRC_REPO = os.environ.get("SRC_REPO", "Damaru-ai/damru-knowledge")
 DEDUP_CAPACITY = int(os.environ.get("DEDUP_CAPACITY") or "80000000")
 MAX_ROWS = int(os.environ.get("MAX_ROWS") or "0")
-PUSH_REPORT = (os.environ.get("PUSH_REPORT", "1") == "1")
+PUSH_REPORT = ((os.environ.get("PUSH_REPORT") or "1") == "1")
 
 
 class Bloom:
