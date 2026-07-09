@@ -997,12 +997,41 @@ async function refineImagePrompt(msg){
   return msg;
 }
 function imgUrl(prompt){ const seed=Math.floor(Math.random()*1e7); return 'https://image.pollinations.ai/prompt/'+encodeURIComponent(prompt)+'?width=1024&height=1024&nologo=true&seed='+seed; }
+async function imageRouter(prompt, style, aspect, seed){
+  const res = await fetch(DAMRU_API + '/image', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({prompt:prompt, style:style||'realistic', aspect:aspect||'1:1', seed:seed||null})
+  });
+  if(!res.ok) throw new Error('Image router '+res.status);
+  return await res.json();
+}
+function imageStyleFromPrompt(msg){
+  const m=(msg||'').toLowerCase();
+  if(/logo|icon|brand/.test(m)) return 'logo';
+  if(/poster|thumbnail|banner/.test(m)) return 'poster';
+  if(/anime|cartoon|manga/.test(m)) return 'anime';
+  return 'realistic';
+}
+function imageAspectFromPrompt(msg){
+  const m=(msg||'').toLowerCase();
+  if(/9:16|story|reel|shorts|vertical/.test(m)) return '9:16';
+  if(/16:9|youtube|wide|landscape/.test(m)) return '16:9';
+  return '1:1';
+}
 async function handleImage(msg,tEl){
   const prompt=await refineImagePrompt(msg);
-  const url=imgUrl(prompt);
+  const style=imageStyleFromPrompt(msg);
+  const aspect=imageAspectFromPrompt(msg);
+  let meta;
+  try{ meta=await imageRouter(prompt,style,aspect); }
+  catch(e){
+    const seed=Math.floor(Math.random()*1e7);
+    meta={ok:true,provider:'pollinations-direct-fallback',quality:'draft-free',imageUrl:imgUrl(prompt),prompt:prompt,seed:seed,note:'Backend image router unavailable, used direct fallback.'};
+  }
+  const url=meta.imageUrl;
   tEl.remove();
   const d=document.createElement('div'); d.className='msg ai';
-  d.innerHTML='<div class="msg-av">'+DOGAV+'</div><div class="bubble"><span class="intent-tag">image</span><div class="img-wrap"><div class="img-load"><div class="typing"><span></span><span></span><span></span></div>creating your image…</div></div></div>';
+  d.innerHTML='<div class="msg-av">'+DOGAV+'</div><div class="bubble"><span class="intent-tag">image</span><div class="img-wrap"><div class="img-load"><div class="typing"><span></span><span></span><span></span></div>Image Router se generate ho raha hai…</div></div></div>';
   chatEl.appendChild(d); scrollDown();
   const wrap=d.querySelector('.img-wrap');
   const im=new Image();
@@ -1010,10 +1039,15 @@ async function handleImage(msg,tEl){
     wrap.innerHTML=''; im.className='gen-img'; wrap.appendChild(im);
     const bar=document.createElement('div'); bar.className='img-acts';
     const a=document.createElement('a'); a.className='act'; a.href=url; a.target='_blank'; a.rel='noopener'; a.textContent='⬇ Open / Save'; bar.appendChild(a);
+    const regen=document.createElement('button'); regen.className='act'; regen.textContent='🔁 Regenerate';
+    regen.onclick=function(){ const inp=document.getElementById('inp'); inp.value='Regenerate better image: '+msg+' (improve realism, anatomy, identity accuracy, lighting, background)'; send(); };
+    bar.appendChild(regen);
     wrap.appendChild(bar);
-    const cap=document.createElement('div'); cap.style.cssText='font-size:0.7rem;color:var(--muted);margin-top:6px'; cap.textContent=prompt; wrap.appendChild(cap); scrollDown();
+    const cap=document.createElement('div'); cap.style.cssText='font-size:0.72rem;color:var(--muted);margin-top:7px;line-height:1.45';
+    cap.innerHTML='<b>Generated via:</b> '+esc(meta.provider||'image-router')+' · <b>Quality:</b> '+esc(meta.quality||'draft')+' · <b>Seed:</b> '+esc(String(meta.seed||''))+'<br><b>Prompt:</b> '+esc(meta.prompt||prompt)+'<br><span style="opacity:.8">Note: Free image providers are draft quality; HD/identity-accurate provider can be plugged into this router later.</span>';
+    wrap.appendChild(cap); scrollDown();
   };
-  im.onerror=function(){ wrap.innerHTML='⚠️ Image generate nahi ho payi, thodi der baad dobara try karein.'; };
+  im.onerror=function(){ wrap.innerHTML='⚠️ Image generate nahi ho payi. Router/provider issue — thodi der baad regenerate try karo.'; };
   im.src=url;
 }
 
