@@ -5,32 +5,49 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
 <meta name="theme-color" content="#1f1e1d"/>
 <title>Damru AI — Your Smart Companion</title>
-<meta name="description" content="Damru AI — a smart general-purpose AI for coding, maths, writing, general knowledge and exam prep. Reads images, replies in your language. Made by SHIVA AI."/>
+<meta name="description" content="Damru AI — a self-learning general-purpose AI: coding, research, maths, writing, GK & exams. Reads images, speaks your language, learns 24/7. Built by SHIVA AI."/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600;8..60,700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
 <style>
 :root{
-  --bg:#262624; --sidebar:#1f1e1d; --panel:#30302d; --panel2:#3a3a36;
-  --border:rgba(255,255,255,0.09); --border2:rgba(255,255,255,0.14);
-  --accent:#d97757; --accent2:#e08a6c;
+  --bg:#262624; --sidebar:#1f1e1d; --panel:#30302d; --panel2:#3a3a36; --panel3:#454540;
+  --border:rgba(255,255,255,0.09); --border2:rgba(255,255,255,0.14); --border3:rgba(255,255,255,0.22);
+  --accent:#d97757; --accent2:#e08a6c; --accent-dim:rgba(217,119,87,0.14);
   --text:#f5f4ee; --text2:#c9c6bd; --muted:#8f8c83;
-  --user:#34332e;
+  --user:#34332e; --ok:#8fd19e; --warn:#e0b56c;
   --serif:'Source Serif 4',Georgia,serif;
+  --ui:16px;
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%}
-body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);overflow:hidden;display:flex;height:100dvh}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);overflow:hidden;display:flex;height:100dvh;font-size:var(--ui)}
+button{font-family:inherit}
+::selection{background:var(--accent-dim)}
+
+/* ===== Damru animated logo (SVG, no emoji) ===== */
+.dmlogo{display:inline-block;vertical-align:middle;overflow:visible}
+.dmlogo .ears{transform-origin:32px 14px;animation:dmEar 4.5s ease-in-out infinite}
+.dmlogo .head{transform-origin:32px 40px;animation:dmBob 5s ease-in-out infinite}
+.dmlogo .eye{animation:dmBlink 6s infinite}
+@keyframes dmEar{0%,100%{transform:rotate(0)}25%{transform:rotate(-4deg)}70%{transform:rotate(4deg)}}
+@keyframes dmBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.5px)}}
+@keyframes dmBlink{0%,92%,100%{transform:scaleY(1)}96%{transform:scaleY(0.1)}}
+.dmlogo.big .head{animation:dmBob 4s ease-in-out infinite,dmPulse 4s ease-in-out infinite}
+@keyframes dmPulse{0%,100%{filter:drop-shadow(0 0 0 rgba(217,119,87,0))}50%{filter:drop-shadow(0 4px 22px rgba(217,119,87,.45))}}
 
 /* ===== Sidebar ===== */
-.sb{width:272px;flex-shrink:0;background:var(--sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100dvh}
-.sb-top{display:flex;align-items:center;justify-content:space-between;padding:15px 14px 10px}
-.brand{display:flex;align-items:center;gap:8px;font-family:var(--serif);font-size:1.18rem;font-weight:600;color:var(--text)}
-.burst{color:var(--accent);font-size:1.3rem;line-height:1}
-.newbtn{margin:4px 12px 8px;display:flex;align-items:center;gap:9px;padding:10px 13px;border-radius:11px;background:transparent;border:1px solid var(--border2);color:var(--text);font-size:0.9rem;font-weight:500;cursor:pointer;transition:all .15s;font-family:inherit}
-.newbtn:hover{background:var(--panel)}
-.newbtn .ic{color:var(--accent);font-size:1rem}
-.sb-sec{padding:12px 18px 6px;font-size:0.7rem;color:var(--muted);letter-spacing:0.06em;text-transform:uppercase;font-weight:600}
+.sb{width:274px;flex-shrink:0;background:var(--sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100dvh}
+.sb-top{display:flex;align-items:center;justify-content:space-between;padding:16px 14px 8px}
+.brand{display:flex;align-items:center;gap:9px;font-family:var(--serif);font-size:1.24rem;font-weight:700;color:var(--text);letter-spacing:-.01em}
+.newbtn{margin:6px 12px 3px;display:flex;align-items:center;gap:10px;padding:11px 13px;border-radius:12px;background:var(--accent);border:1px solid transparent;color:#fff;font-size:0.92rem;font-weight:600;cursor:pointer;transition:all .15s}
+.newbtn:hover{background:var(--accent2)}
+.newbtn .ic{font-size:1.05rem;line-height:1}
+.navbtn{margin:2px 12px;display:flex;align-items:center;gap:11px;padding:9px 13px;border-radius:11px;background:transparent;border:1px solid transparent;color:var(--text2);font-size:0.88rem;font-weight:500;cursor:pointer;transition:all .14s;width:calc(100% - 24px);text-align:left}
+.navbtn:hover{background:var(--panel);color:var(--text)}
+.navbtn .ic{width:20px;text-align:center;font-size:1rem;color:var(--accent)}
+.navbtn .badge{margin-left:auto;font-size:0.6rem;background:var(--accent-dim);color:var(--accent2);border:1px solid var(--border2);padding:1px 6px;border-radius:20px;letter-spacing:.04em}
+.sb-sec{padding:14px 18px 6px;font-size:0.68rem;color:var(--muted);letter-spacing:0.07em;text-transform:uppercase;font-weight:700}
 .chatlist{flex:1;overflow-y:auto;padding:0 8px;display:flex;flex-direction:column;gap:1px}
 .chatlist::-webkit-scrollbar{width:6px}.chatlist::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
 .chatitem{display:flex;align-items:center;gap:6px;padding:9px 10px;border-radius:9px;cursor:pointer;color:var(--text2);font-size:0.86rem;transition:background .14s;position:relative}
@@ -41,42 +58,59 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .chatitem:hover .ci-x{opacity:1}
 .ci-x:hover{background:var(--border2);color:var(--text)}
 .sb-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:11px 14px;border-top:1px solid var(--border)}
-.brain{font-size:0.72rem;color:var(--muted);display:flex;align-items:center;gap:5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.brain{font-size:0.72rem;color:var(--muted);display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.brain .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);flex:none;box-shadow:0 0 0 0 rgba(143,209,158,.6);animation:pulse 2.2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(143,209,158,.5)}70%{box-shadow:0 0 0 7px rgba(143,209,158,0)}100%{box-shadow:0 0 0 0 rgba(143,209,158,0)}}
 .ico{width:36px;height:36px;border-radius:9px;background:transparent;border:1px solid transparent;color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1.05rem;transition:all .15s;flex-shrink:0}
 .ico:hover{background:var(--panel);color:var(--text)}
 .backdrop{display:none}
 
 /* ===== Main ===== */
 .main{flex:1;display:flex;flex-direction:column;min-width:0;height:100dvh;position:relative}
-.topbar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);background:rgba(38,38,36,0.85);backdrop-filter:blur(10px);position:sticky;top:0;z-index:20}
+.topbar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);background:rgba(38,38,36,0.82);backdrop-filter:blur(12px);position:sticky;top:0;z-index:20}
 .menu-btn{display:none}
-.model{margin:0 auto;display:flex;align-items:center;gap:7px;padding:7px 14px;border-radius:11px;background:transparent;border:1px solid var(--border);color:var(--text);font-size:0.86rem;font-weight:500;cursor:pointer;font-family:inherit;transition:background .15s}
+
+/* Model switcher (Claude-like) */
+.modelwrap{margin:0 auto;position:relative}
+.model{display:flex;align-items:center;gap:9px;padding:8px 13px;border-radius:12px;background:transparent;border:1px solid var(--border2);color:var(--text);font-size:0.88rem;font-weight:600;cursor:pointer;transition:background .15s}
 .model:hover{background:var(--panel)}
-.model b{color:var(--accent);font-weight:600}
-.model span{font-size:0.68rem;color:var(--muted)}
+.model .m-ic{color:var(--accent);display:flex}
+.model .m-sub{font-size:0.66rem;color:var(--muted);font-weight:500}
+.model .caret{color:var(--muted);font-size:0.7rem;margin-left:2px}
+.mdrop{position:absolute;top:46px;left:50%;transform:translateX(-50%) translateY(-6px);width:320px;max-width:88vw;background:var(--panel);border:1px solid var(--border2);border-radius:16px;padding:7px;box-shadow:0 20px 50px rgba(0,0,0,.5);opacity:0;visibility:hidden;transition:all .18s;z-index:40}
+.mdrop.on{opacity:1;visibility:visible;transform:translateX(-50%) translateY(0)}
+.mopt{display:flex;align-items:flex-start;gap:11px;padding:11px 12px;border-radius:11px;cursor:pointer;transition:background .13s}
+.mopt:hover{background:var(--panel2)}
+.mopt.sel{background:var(--accent-dim)}
+.mopt .mo-ic{font-size:1.1rem;width:26px;height:26px;border-radius:8px;background:var(--panel3);display:flex;align-items:center;justify-content:center;flex:none;margin-top:1px}
+.mopt.sel .mo-ic{background:var(--accent);color:#fff}
+.mo-t{font-size:0.88rem;font-weight:600;color:var(--text);display:flex;align-items:center;gap:7px}
+.mo-d{font-size:0.74rem;color:var(--muted);line-height:1.4;margin-top:2px}
+.mo-chk{margin-left:auto;color:var(--accent);opacity:0;font-size:0.9rem}
+.mopt.sel .mo-chk{opacity:1}
 
 /* Chat */
+.stage{flex:1;display:flex;min-height:0}
 .chat{flex:1;overflow-y:auto;overflow-x:hidden;scroll-behavior:smooth;padding:18px 0 6px}
 .chat::-webkit-scrollbar{width:7px}.chat::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px}
 
 /* Welcome */
-.welcome{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px 20px;gap:6px}
-.wc-burst{font-size:3.1rem;color:var(--accent);animation:spin 9s linear infinite;line-height:1;margin-bottom:6px}
-@keyframes spin{to{transform:rotate(360deg)}}
-.wc-hi{font-family:var(--serif);font-size:2rem;font-weight:600;color:var(--text);letter-spacing:-0.01em}
-.wc-sub{color:var(--text2);font-size:0.92rem;max-width:480px;line-height:1.6;margin-top:6px}
-.chips{display:flex;flex-wrap:wrap;gap:9px;justify-content:center;margin-top:24px;max-width:580px}
+.welcome{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px 20px;gap:4px}
+.wc-logo{margin-bottom:10px}
+.wc-hi{font-family:var(--serif);font-size:2.1rem;font-weight:700;color:var(--text);letter-spacing:-0.015em}
+.wc-sub{color:var(--text2);font-size:0.94rem;max-width:500px;line-height:1.65;margin-top:8px}
+.chips{display:flex;flex-wrap:wrap;gap:9px;justify-content:center;margin-top:26px;max-width:600px}
 .chip{padding:10px 15px;border-radius:12px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:0.82rem;font-weight:500;cursor:pointer;transition:all .16s;display:flex;align-items:center;gap:7px}
-.chip:hover{background:var(--panel2);transform:translateY(-1px)}
+.chip:hover{background:var(--panel2);transform:translateY(-1px);border-color:var(--border2)}
 .chip:active{transform:scale(0.97)}
 
 /* Messages */
 .msg{display:flex;gap:13px;width:100%;max-width:760px;margin:0 auto;padding:14px 22px;animation:rise .3s ease}
 @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-.msg-av{width:30px;height:30px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:0.95rem;margin-top:1px}
-.msg.ai .msg-av{background:var(--accent);color:#fff}
+.msg-av{width:32px;height:32px;border-radius:9px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:0.95rem;margin-top:1px;overflow:hidden}
+.msg.ai .msg-av{background:linear-gradient(145deg,#3a3a36,#2b2b28);border:1px solid var(--border2)}
 .msg.user .msg-av{background:var(--panel2);border:1px solid var(--border2)}
-.bubble{flex:1;min-width:0;line-height:1.72;font-size:0.96rem;word-wrap:break-word;overflow-wrap:anywhere;padding-top:3px}
+.bubble{flex:1;min-width:0;line-height:1.72;font-size:0.96rem;word-wrap:break-word;overflow-wrap:anywhere;padding-top:4px}
 .msg.user .bubble{color:var(--text)}
 .bubble p{margin:0 0 10px}.bubble p:last-child{margin-bottom:0}
 .bubble h1,.bubble h2,.bubble h3{margin:15px 0 9px;line-height:1.3;font-family:var(--serif);color:var(--text)}
@@ -91,6 +125,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .bubble pre code{background:none;padding:0;color:#e8e5dc;font-size:0.83rem;line-height:1.6;display:block}
 .pre-cp{position:absolute;top:8px;right:8px;background:var(--panel2);border:1px solid var(--border2);border-radius:7px;color:var(--text2);font-size:0.65rem;padding:3px 9px;cursor:pointer;opacity:0.85}
 .pre-cp:hover{color:var(--text)}
+.pre-run{right:56px;color:var(--accent2)}
 .bubble blockquote{border-left:3px solid var(--accent);padding-left:13px;margin:9px 0;color:var(--text2)}
 .bubble table{border-collapse:collapse;margin:11px 0;width:100%;font-size:0.86rem}
 .bubble th,.bubble td{border:1px solid var(--border2);padding:7px 10px;text-align:left}
@@ -105,7 +140,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .typing span{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:bounce 1.3s infinite}
 .typing span:nth-child(2){animation-delay:.18s}.typing span:nth-child(3){animation-delay:.36s}
 @keyframes bounce{0%,60%,100%{transform:translateY(0);opacity:.5}30%{transform:translateY(-7px);opacity:1}}
-.intent-tag{display:inline-block;font-size:0.6rem;color:var(--accent2);background:rgba(217,119,87,0.13);border:1px solid var(--border2);border-radius:6px;padding:1px 7px;margin-bottom:7px;letter-spacing:0.05em;text-transform:uppercase}
+.intent-tag{display:inline-block;font-size:0.6rem;color:var(--accent2);background:var(--accent-dim);border:1px solid var(--border2);border-radius:6px;padding:1px 7px;margin-bottom:7px;letter-spacing:0.05em;text-transform:uppercase}
 .img-wrap{margin-top:4px}
 .gen-img{max-width:100%;border-radius:14px;border:1px solid var(--border2);display:block}
 .up-img{max-width:230px;border-radius:12px;display:block;border:1px solid var(--border2)}
@@ -115,40 +150,147 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .img-acts .act:hover{background:var(--panel);color:var(--text)}
 
 /* Input */
-.inp-wrap{padding:8px 16px 16px;max-width:790px;margin:0 auto;width:100%;position:relative}
-.inp-box{display:flex;align-items:flex-end;gap:6px;background:var(--panel);border:1px solid var(--border2);border-radius:22px;padding:7px 7px 7px 8px;transition:border-color .2s,box-shadow .2s}
+.inp-wrap{padding:8px 16px 14px;max-width:800px;margin:0 auto;width:100%;position:relative}
+.inp-box{display:flex;flex-direction:column;gap:2px;background:var(--panel);border:1px solid var(--border2);border-radius:22px;padding:8px 8px 7px;transition:border-color .2s,box-shadow .2s}
 .inp-box:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(217,119,87,0.13)}
-.inp{flex:1;background:none;border:none;outline:none;color:var(--text);font-family:inherit;font-size:0.97rem;line-height:1.5;resize:none;max-height:140px;padding:8px 4px}
+.inp-row{display:flex;align-items:flex-end;gap:6px}
+.inp{flex:1;background:none;border:none;outline:none;color:var(--text);font-family:inherit;font-size:0.97rem;line-height:1.5;resize:none;max-height:150px;padding:9px 6px}
 .inp::placeholder{color:var(--muted)}
+.toolsbar{display:flex;align-items:center;gap:5px;padding:2px 4px 0;flex-wrap:wrap}
+.tpill{display:flex;align-items:center;gap:6px;padding:6px 11px;border-radius:20px;border:1px solid var(--border2);background:transparent;color:var(--text2);font-size:0.76rem;font-weight:500;cursor:pointer;transition:all .15s}
+.tpill:hover{background:var(--panel2);color:var(--text)}
+.tpill.on{background:var(--accent-dim);border-color:var(--accent);color:var(--accent2)}
+.tpill .ic{font-size:0.92rem;line-height:1}
+.tsp{flex:1}
 .icb{width:38px;height:38px;border-radius:50%;border:none;background:transparent;color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1.15rem;flex-shrink:0;transition:all .16s}
 .icb:hover{background:var(--panel2);color:var(--text)}
 .icb.on{color:var(--accent)}
-.send{width:38px;height:38px;border-radius:50%;border:none;background:var(--accent);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1.05rem;flex-shrink:0;transition:all .16s}
+.icb.rec{color:#fff;background:var(--accent);animation:pulse2 1.4s infinite}
+@keyframes pulse2{0%,100%{box-shadow:0 0 0 0 rgba(217,119,87,.5)}50%{box-shadow:0 0 0 8px rgba(217,119,87,0)}}
+.send{width:40px;height:40px;border-radius:50%;border:none;background:var(--accent);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1.05rem;flex-shrink:0;transition:all .16s}
 .send:hover{background:var(--accent2)}
-.send:disabled{opacity:0.45;cursor:default}
+.send:disabled{opacity:0.4;cursor:default}
 .foot{text-align:center;font-size:0.68rem;color:var(--muted);margin-top:9px}
 
 /* Attach menu */
-.attmenu{position:absolute;left:20px;bottom:78px;background:var(--panel);border:1px solid var(--border2);border-radius:14px;padding:6px;box-shadow:0 12px 32px rgba(0,0,0,0.45);display:none;flex-direction:column;gap:2px;min-width:180px;z-index:30}
+.attmenu{position:absolute;left:20px;bottom:96px;background:var(--panel);border:1px solid var(--border2);border-radius:14px;padding:6px;box-shadow:0 12px 32px rgba(0,0,0,0.45);display:none;flex-direction:column;gap:2px;min-width:190px;z-index:30}
 .attmenu.on{display:flex;animation:rise .16s ease}
 .ami{display:flex;align-items:center;gap:11px;padding:10px 13px;border-radius:9px;cursor:pointer;color:var(--text);font-size:0.88rem;transition:background .14s}
 .ami:hover{background:var(--panel2)}
 .ami span{font-size:1.05rem;width:20px;text-align:center}
 
-/* Settings modal + toast */
-.ov{position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
+/* Canvas / Sandbox side panel */
+.canvas{width:0;flex-shrink:0;background:var(--sidebar);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;transition:width .25s ease}
+body.canvas-open .canvas{width:min(46vw,560px)}
+.cv-top{display:flex;align-items:center;gap:9px;padding:12px 14px;border-bottom:1px solid var(--border)}
+.cv-top .t{font-weight:600;font-size:0.9rem;display:flex;align-items:center;gap:8px}
+.cv-tabs{display:flex;gap:4px;margin-left:auto}
+.cv-tab{font-size:0.72rem;padding:5px 10px;border-radius:8px;border:1px solid var(--border2);background:transparent;color:var(--text2);cursor:pointer}
+.cv-tab.on{background:var(--accent-dim);border-color:var(--accent);color:var(--accent2)}
+.cv-body{flex:1;overflow:auto;position:relative}
+.cv-frame{width:100%;height:100%;border:0;background:#fff}
+.cv-code{width:100%;height:100%;border:0;background:#1a1a18;color:#e8e5dc;font-family:'Courier New',monospace;font-size:0.8rem;padding:14px;resize:none;outline:none;white-space:pre;overflow:auto}
+.cv-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--muted);text-align:center;padding:26px;font-size:0.85rem}
+
+/* Modals */
+.ov{position:fixed;inset:0;background:rgba(0,0,0,0.62);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
 .ov.on{display:flex}
-.modal{background:var(--panel);border:1px solid var(--border2);border-radius:18px;padding:22px;max-width:400px;width:100%}
-.modal h3{font-family:var(--serif);font-size:1.15rem;margin-bottom:10px;color:var(--text)}
-.modal p{font-size:0.85rem;color:var(--text2);line-height:1.6;margin-bottom:14px}
-.modal label{display:block;font-size:0.78rem;color:var(--muted);margin-bottom:6px}
-.modal input{width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:10px;padding:11px 13px;color:var(--text);font-family:inherit;font-size:0.9rem;outline:none}
-.modal input:focus{border-color:var(--accent)}
-.modal-btns{display:flex;gap:9px;justify-content:flex-end;margin-top:18px}
-.mb{padding:9px 18px;border-radius:10px;border:none;cursor:pointer;font-family:inherit;font-size:0.86rem;font-weight:500}
+.modal{background:var(--panel);border:1px solid var(--border2);border-radius:20px;padding:22px;max-width:440px;width:100%;max-height:88vh;overflow-y:auto;animation:rise .2s ease}
+.modal::-webkit-scrollbar{width:7px}.modal::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px}
+.modal h3{font-family:var(--serif);font-size:1.2rem;margin-bottom:4px;color:var(--text);display:flex;align-items:center;gap:9px}
+.modal .msub{font-size:0.83rem;color:var(--muted);margin-bottom:16px;line-height:1.5}
+.set-sec{border-top:1px solid var(--border);padding:15px 0 4px}
+.set-sec:first-of-type{border-top:0}
+.set-h{font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);font-weight:700;margin-bottom:11px}
+.set-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0}
+.set-row .l{font-size:0.88rem;color:var(--text)}
+.set-row .l small{display:block;color:var(--muted);font-size:0.74rem;margin-top:2px;font-weight:400}
+.swatches{display:flex;gap:9px}
+.sw{width:26px;height:26px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:transform .12s}
+.sw:hover{transform:scale(1.12)}
+.sw.sel{border-color:#fff}
+.toggle{width:44px;height:25px;border-radius:20px;background:var(--panel3);position:relative;cursor:pointer;transition:background .2s;flex:none}
+.toggle.on{background:var(--accent)}
+.toggle::after{content:'';position:absolute;top:3px;left:3px;width:19px;height:19px;border-radius:50%;background:#fff;transition:left .2s}
+.toggle.on::after{left:22px}
+.selbox{background:var(--bg);border:1px solid var(--border2);border-radius:10px;color:var(--text);padding:8px 11px;font-family:inherit;font-size:0.85rem;outline:none;cursor:pointer}
+.rng{accent-color:var(--accent);width:130px}
+.modal-btns{display:flex;gap:9px;justify-content:flex-end;margin-top:20px;position:sticky;bottom:-22px;background:var(--panel);padding-top:10px}
+.mb{padding:10px 20px;border-radius:11px;border:none;cursor:pointer;font-family:inherit;font-size:0.86rem;font-weight:600}
 .mb-cancel{background:transparent;border:1px solid var(--border2);color:var(--text2)}
+.mb-cancel:hover{background:var(--panel2)}
 .mb-save{background:var(--accent);color:#fff}
-.toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--border2);color:var(--text);padding:10px 18px;border-radius:11px;font-size:0.85rem;opacity:0;pointer-events:none;transition:opacity .25s;z-index:120}
+.mb-save:hover{background:var(--accent2)}
+.mb-danger{background:transparent;border:1px solid rgba(224,138,108,.4);color:var(--accent2)}
+
+/* Connectors */
+.conn-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:6px 0}
+.conn{display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--border2);border-radius:13px;background:var(--panel2);cursor:pointer;transition:all .15s}
+.conn:hover{border-color:var(--border3)}
+.conn .ci{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;background:var(--panel3);flex:none}
+.conn .cn{font-size:0.84rem;font-weight:600}
+.conn .cs{font-size:0.68rem;color:var(--muted)}
+.conn.on{border-color:var(--accent);background:var(--accent-dim)}
+.conn.on .cs{color:var(--accent2)}
+
+/* Lab */
+.lab-modal{max-width:560px}
+.lab-explore{display:flex;gap:8px;margin:6px 0 4px}
+.lab-explore input{flex:1;padding:11px 13px;border:1px solid var(--border2);border-radius:11px;background:var(--panel2);color:var(--text);font-size:0.9rem;outline:none}
+.lab-feed{max-height:44vh;overflow-y:auto;display:flex;flex-direction:column;gap:6px;margin:4px 0 10px}
+.lab-row{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;background:var(--panel2);border:1px solid var(--border);border-radius:10px}
+.lab-tag{flex:none;font-size:0.6rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--accent2);background:var(--accent-dim);padding:2px 7px;border-radius:6px;font-weight:700;margin-top:1px}
+.lab-q{font-size:0.84rem;color:var(--text);line-height:1.4}
+.lab-empty{color:var(--muted);font-size:0.85rem;padding:12px;text-align:center}
+.lab-stat{color:var(--text2);font-size:0.85rem;margin-bottom:8px;line-height:1.5}
+
+/* Guided learning */
+.gl-list{display:flex;flex-direction:column;gap:8px;margin:8px 0}
+.gl-card{display:flex;align-items:center;gap:12px;padding:13px;border:1px solid var(--border2);border-radius:13px;background:var(--panel2);cursor:pointer;transition:all .15s}
+.gl-card:hover{border-color:var(--accent);transform:translateY(-1px)}
+.gl-card .gi{font-size:1.3rem;width:40px;height:40px;border-radius:11px;background:var(--panel3);display:flex;align-items:center;justify-content:center;flex:none}
+.gl-t{font-size:0.9rem;font-weight:600}
+.gl-d{font-size:0.74rem;color:var(--muted);margin-top:2px}
+
+/* Voice conversation overlay */
+.vc{position:fixed;inset:0;z-index:200;display:none;flex-direction:column;align-items:center;justify-content:center;gap:26px;background:radial-gradient(circle at 50% 38%,#3a2b26,#211f1d 70%)}
+.vc.on{display:flex}
+.vc-orb{width:150px;height:150px;border-radius:50%;background:radial-gradient(circle at 40% 35%,var(--accent2),var(--accent) 60%,#a8553a);box-shadow:0 0 60px rgba(217,119,87,.5);display:flex;align-items:center;justify-content:center;transition:transform .15s}
+.vc.speaking .vc-orb{animation:orb 1.1s ease-in-out infinite}
+.vc.listening .vc-orb{animation:orbL 1.6s ease-in-out infinite}
+@keyframes orb{0%,100%{transform:scale(1)}50%{transform:scale(1.09)}}
+@keyframes orbL{0%,100%{transform:scale(1);box-shadow:0 0 40px rgba(217,119,87,.35)}50%{transform:scale(1.05);box-shadow:0 0 80px rgba(217,119,87,.6)}}
+.vc-status{font-size:1.05rem;color:var(--text);font-weight:500}
+.vc-txt{color:var(--text2);font-size:0.9rem;max-width:80vw;text-align:center;min-height:22px;line-height:1.5}
+.vc-btns{display:flex;gap:16px;margin-top:6px}
+.vc-end{width:60px;height:60px;border-radius:50%;border:none;cursor:pointer;background:#d0483f;color:#fff;font-size:1.4rem;display:flex;align-items:center;justify-content:center}
+.vc-mute{width:60px;height:60px;border-radius:50%;border:1px solid var(--border2);cursor:pointer;background:var(--panel2);color:var(--text);font-size:1.3rem}
+
+/* Onboarding — liquid glass auto slides */
+.ob{position:fixed;inset:0;z-index:300;display:none;align-items:center;justify-content:center;overflow:hidden;background:#1b1a19}
+.ob.on{display:flex}
+.ob-aurora{position:absolute;inset:-30%;background:radial-gradient(circle at 25% 30%,rgba(217,119,87,.55),transparent 45%),radial-gradient(circle at 78% 65%,rgba(120,90,200,.5),transparent 45%),radial-gradient(circle at 55% 85%,rgba(80,150,180,.4),transparent 40%);filter:blur(20px);animation:aur 16s ease-in-out infinite alternate}
+@keyframes aur{0%{transform:translate(0,0) scale(1)}100%{transform:translate(-6%,4%) scale(1.15)}}
+.ob-card{position:relative;width:min(440px,90vw);z-index:2;display:flex;flex-direction:column;align-items:center;text-align:center}
+.glass{width:100%;border-radius:26px;padding:34px 28px 30px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.16);box-shadow:0 20px 60px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.18);backdrop-filter:blur(22px) saturate(140%);-webkit-backdrop-filter:blur(22px) saturate(140%)}
+.ob-slide{display:none;animation:obIn .55s cubic-bezier(.2,.7,.2,1)}
+.ob-slide.on{display:block}
+@keyframes obIn{from{opacity:0;transform:translateY(16px) scale(.98)}to{opacity:1;transform:none}}
+.ob-ic{font-size:2.2rem;width:74px;height:74px;margin:0 auto 16px;border-radius:20px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.18)}
+.ob-h{font-family:var(--serif);font-size:1.55rem;font-weight:700;color:#fff;letter-spacing:-.01em}
+.ob-p{color:rgba(255,255,255,.82);font-size:0.95rem;line-height:1.6;margin-top:12px}
+.ob-specs{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:18px}
+.ob-spec{font-size:0.72rem;padding:5px 11px;border-radius:20px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.16);color:#fff}
+.ob-dots{display:flex;gap:8px;justify-content:center;margin-top:22px}
+.ob-dot{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,0.28);cursor:pointer;transition:all .2s}
+.ob-dot.on{background:#fff;width:22px;border-radius:5px}
+.ob-actions{display:flex;gap:12px;align-items:center;margin-top:24px}
+.ob-skip{background:transparent;border:none;color:rgba(255,255,255,.65);font-size:0.85rem;cursor:pointer;padding:10px}
+.ob-next{background:#fff;color:#211f1d;border:none;border-radius:13px;padding:12px 26px;font-size:0.9rem;font-weight:700;cursor:pointer;transition:transform .12s}
+.ob-next:hover{transform:translateY(-1px)}
+.ob-bar{position:absolute;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--accent2),#fff);width:0;transition:width .1s linear}
+
+.toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--border2);color:var(--text);padding:10px 18px;border-radius:11px;font-size:0.85rem;opacity:0;pointer-events:none;transition:opacity .25s;z-index:400}
 .toast.on{opacity:1}
 
 @media(max-width:860px){
@@ -158,101 +300,226 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
   body.sb-open .backdrop{opacity:1;visibility:visible}
   .menu-btn{display:flex}
   .msg{padding:13px 16px}
-  .wc-hi{font-size:1.7rem}
+  .wc-hi{font-size:1.8rem}
+  body.canvas-open .canvas{position:fixed;right:0;top:0;bottom:0;z-index:70;width:min(92vw,520px)}
+  .cv-empty{padding:20px}
 }
 </style>
 </head>
 <body>
+<div class="backdrop" id="backdrop" onclick="closeSb()"></div>
 
+<!-- ===== SIDEBAR ===== -->
 <aside class="sb" id="sb">
   <div class="sb-top">
-    <div class="brand"><span class="burst">🐕</span> Damru</div>
-    <button class="ico" onclick="closeSb()" title="Close" style="display:none" id="sb-close">«</button>
+    <div class="brand"><span id="brand-logo"></span> Damru</div>
+    <button class="ico" id="sb-close" onclick="closeSb()" title="Close">×</button>
   </div>
   <button class="newbtn" onclick="newChat()"><span class="ic">✎</span> New chat</button>
-  <button class="newbtn" onclick="openLab()" style="margin-top:6px"><span class="ic">🧪</span> Open Lab</button>
-  <div class="sb-sec">Recents</div>
+  <button class="navbtn" onclick="openResearch()"><span class="ic">🔬</span> Deep Research <span class="badge">WEB</span></button>
+  <button class="navbtn" onclick="openGuided()"><span class="ic">🎓</span> Guided Learning</button>
+  <button class="navbtn" onclick="openConnectors()"><span class="ic">🔌</span> Connectors</button>
+  <button class="navbtn" onclick="toggleCanvas(true)"><span class="ic">🧱</span> Canvas / Sandbox</button>
+  <button class="navbtn" onclick="openLab()"><span class="ic">🧠</span> Brain Lab</button>
+  <div class="sb-sec">Recent</div>
   <div class="chatlist" id="chatlist"></div>
   <div class="sb-foot">
-    <div class="brain" id="hd-sub">🧠 learning 24/7</div>
+    <div class="brain"><span class="dot"></span><span id="hd-sub">Loading brain…</span></div>
     <button class="ico" onclick="openSettings()" title="Settings">⚙</button>
   </div>
 </aside>
-<div class="backdrop" id="backdrop" onclick="closeSb()"></div>
 
+<!-- ===== MAIN ===== -->
 <main class="main">
   <div class="topbar">
     <button class="ico menu-btn" onclick="toggleSb()" title="Menu">☰</button>
-    <button class="model" onclick="openSettings()"><b>Damru</b> Beast <span>v1</span></button>
+    <div class="modelwrap">
+      <button class="model" onclick="toggleModel(event)">
+        <span class="m-ic" id="model-ic"></span>
+        <span><span id="model-name">Damru Beast</span><br><span class="m-sub" id="model-sub">balanced · all-round</span></span>
+        <span class="caret">▾</span>
+      </button>
+      <div class="mdrop" id="mdrop"></div>
+    </div>
+    <button class="ico" onclick="toggleCanvas()" title="Canvas">🧱</button>
     <button class="ico" onclick="newChat()" title="New chat">✎</button>
   </div>
 
-  <div class="chat" id="chat"></div>
+  <div class="stage">
+    <div class="chat" id="chat"></div>
+
+    <!-- Canvas / sandbox -->
+    <div class="canvas" id="canvas">
+      <div class="cv-top">
+        <div class="t">🧱 <span id="cv-title">Canvas</span></div>
+        <div class="cv-tabs">
+          <button class="cv-tab on" id="cvt-prev" onclick="cvTab('preview')">Preview</button>
+          <button class="cv-tab" id="cvt-code" onclick="cvTab('code')">Code</button>
+        </div>
+        <button class="ico" onclick="toggleCanvas(false)" title="Close">×</button>
+      </div>
+      <div class="cv-body">
+        <iframe class="cv-frame" id="cv-frame" sandbox="allow-scripts allow-modals allow-popups allow-forms"></iframe>
+        <textarea class="cv-code" id="cv-code" style="display:none" spellcheck="false" oninput="cvSync()"></textarea>
+        <div class="cv-empty" id="cv-empty">🧱<div>Canvas is empty.<br>Ask Damru (Coder mode) to build an app, webpage, chart, or slides — the live preview will appear here.</div></div>
+      </div>
+    </div>
+  </div>
 
   <div class="inp-wrap">
     <div class="attmenu" id="attmenu">
-      <div class="ami" onclick="document.getElementById('camfile').click();closeAtt()"><span>📷</span> Camera</div>
-      <div class="ami" onclick="document.getElementById('imgfile').click();closeAtt()"><span>🖼️</span> Photos</div>
-      <div class="ami" onclick="document.getElementById('docfile').click();closeAtt()"><span>📎</span> Files</div>
+      <div class="ami" onclick="pick('camfile')"><span>📷</span> Take photo</div>
+      <div class="ami" onclick="pick('imgfile')"><span>🖼️</span> Upload image (OCR / ask)</div>
+      <div class="ami" onclick="pick('docfile')"><span>📎</span> Upload document</div>
     </div>
-    <input type="file" id="camfile" accept="image/*" capture="environment" style="display:none" onchange="onImgPick(event)"/>
-    <input type="file" id="imgfile" accept="image/*" style="display:none" onchange="onImgPick(event)"/>
-    <input type="file" id="docfile" accept="image/*,application/pdf" style="display:none" onchange="onFilePick(event)"/>
     <div class="inp-box">
-      <button class="icb" onclick="toggleAtt(event)" title="Add photo / file">＋</button>
-      <button class="icb" id="dtbtn" onclick="toggleDeepThink()" title="Deep Think — step-by-step reasoning" style="opacity:0.5">🤔</button>
-      <textarea class="inp" id="inp" rows="1" placeholder="Ask Damru anything…" oninput="autoH(this)" onkeydown="keyHandler(event)"></textarea>
-      <button class="icb" id="mic" onclick="micToggle()" title="Voice input">🎙️</button>
-      <button class="send" id="send" onclick="send()" title="Send">➤</button>
+      <div class="inp-row">
+        <button class="icb" onclick="toggleAtt()" title="Attach">+</button>
+        <textarea class="inp" id="inp" rows="1" placeholder="Ask Damru anything…  (code, maths, research, images)" oninput="autoH(this)" onkeydown="keyHandler(event)"></textarea>
+        <button class="icb" id="mic" onclick="micToggle()" title="Voice input">🎙️</button>
+        <button class="icb" onclick="startVoice()" title="Voice conversation">📞</button>
+        <button class="send" id="send" onclick="send()" title="Send">↑</button>
+      </div>
+      <div class="toolsbar">
+        <button class="tpill" id="pill-web" onclick="toggleWeb()"><span class="ic">🌐</span> Web search</button>
+        <button class="tpill" id="dtbtn" onclick="toggleDeepThink()"><span class="ic">🧠</span> Think</button>
+        <button class="tpill" onclick="openResearch()"><span class="ic">🔬</span> Research</button>
+        <button class="tpill" onclick="quickMode('coder')"><span class="ic">‹/›</span> Developer</button>
+        <div class="tsp"></div>
+      </div>
     </div>
-    <div class="foot">Damru AI can make mistakes — please verify important info. · v1.0 Beast</div>
+    <div class="foot">Damru can make mistakes — verify important info. Built by SHIVA AI · learns 24/7.</div>
   </div>
 </main>
 
+<input type="file" id="camfile" accept="image/*" capture="environment" style="display:none" onchange="onImgPick(event)"/>
+<input type="file" id="imgfile" accept="image/*" style="display:none" onchange="onImgPick(event)"/>
+<input type="file" id="docfile" accept=".pdf,.txt,.doc,.docx,.md,.csv" style="display:none" onchange="onFilePick(event)"/>
+
+<!-- ===== SETTINGS (no API keys) ===== -->
 <div class="ov" id="ov">
   <div class="modal">
-    <h3>⚙ Settings</h3>
-    <p>Damru runs on a <b>free keyless engine</b> (Pollinations) by default. For a stronger fallback and image reading, you can add your own OpenRouter key (optional).</p>
-    <label>OpenRouter API Key (optional)</label>
-    <input type="password" id="or-key" placeholder="sk-or-v1-…"/>
-    <label>Google Cloud Vision API Key (optional — sharp screenshot / handwriting OCR)</label>
-    <input type="password" id="vis-key" placeholder="AIza…"/>
+    <h3><span id="set-logo"></span> Settings</h3>
+    <div class="msub">Personalize Damru. Your preferences stay on this device.</div>
+
+    <div class="set-sec">
+      <div class="set-h">Model</div>
+      <div class="set-row"><div class="l">Default mode <small>Which brain Damru starts with</small></div>
+        <select class="selbox" id="set-mode"></select></div>
+    </div>
+
+    <div class="set-sec">
+      <div class="set-h">Appearance</div>
+      <div class="set-row"><div class="l">Accent colour</div>
+        <div class="swatches" id="set-accent"></div></div>
+      <div class="set-row"><div class="l">Text size</div>
+        <input type="range" class="rng" id="set-fontsize" min="14" max="19" step="1"/></div>
+    </div>
+
+    <div class="set-sec">
+      <div class="set-h">Voice &amp; Speech</div>
+      <div class="set-row"><div class="l">Reply language</div>
+        <select class="selbox" id="set-lang"><option value="auto">Auto (match me)</option><option value="hi">Hindi</option><option value="en">English</option><option value="hinglish">Hinglish</option></select></div>
+      <div class="set-row"><div class="l">Speak replies aloud <small>Auto text-to-speech</small></div>
+        <div class="toggle" id="set-autospeak" onclick="tgl(this)"></div></div>
+      <div class="set-row"><div class="l">Speech speed</div>
+        <input type="range" class="rng" id="set-rate" min="0.7" max="1.4" step="0.1"/></div>
+    </div>
+
+    <div class="set-sec">
+      <div class="set-h">Memory &amp; Learning</div>
+      <div class="set-row"><div class="l">Learn from our chats <small>Grows Damru’s shared brain</small></div>
+        <div class="toggle on" id="set-learn" onclick="tgl(this)"></div></div>
+      <div class="set-row"><div class="l">Web search when needed <small>Auto-fetch for people / current events</small></div>
+        <div class="toggle on" id="set-webauto" onclick="tgl(this)"></div></div>
+    </div>
+
+    <div class="set-sec">
+      <div class="set-h">Data</div>
+      <div class="set-row"><div class="l">Show intro again <small>Replay the welcome tour</small></div>
+        <button class="mb mb-cancel" onclick="replayIntro()">View intro</button></div>
+      <div class="set-row"><div class="l">Clear all chats <small>Cannot be undone</small></div>
+        <button class="mb mb-danger" onclick="wipeChats()">Clear</button></div>
+    </div>
+
     <div class="modal-btns">
       <button class="mb mb-cancel" onclick="closeSettings()">Cancel</button>
       <button class="mb mb-save" onclick="saveSettings()">Save</button>
     </div>
   </div>
 </div>
-<style>
-.lab-modal{max-width:540px;width:94%}
-.lab-explore{display:flex;gap:8px;margin:6px 0 4px}
-.lab-explore input{flex:1;padding:10px 12px;border:1px solid var(--border2);border-radius:10px;background:var(--panel);color:var(--text);font-size:0.92rem;outline:none}
-.lab-feed{max-height:44vh;overflow-y:auto;display:flex;flex-direction:column;gap:6px;margin:4px 0 10px}
-.lab-row{display:flex;gap:8px;align-items:flex-start;padding:7px 9px;background:var(--panel);border:1px solid var(--border);border-radius:9px}
-.lab-tag{flex:none;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--accent);background:var(--accent-dim,rgba(217,119,87,0.13));padding:2px 7px;border-radius:6px;font-weight:700;margin-top:1px}
-.lab-q{font-size:0.85rem;color:var(--text);line-height:1.35}
-.lab-empty{color:var(--muted);font-size:0.85rem;padding:10px;text-align:center}
-.lab-stat{color:var(--muted);font-size:0.85rem;margin-bottom:4px}
-</style>
+
+<!-- ===== CONNECTORS ===== -->
+<div class="ov" id="conn-ov">
+  <div class="modal">
+    <h3>🔌 Connectors</h3>
+    <div class="msub">Give Damru access to more of your world, Gemini-style. Web search works right now; others activate as SHIVA AI ships each integration.</div>
+    <div class="conn-grid" id="conn-grid"></div>
+    <div class="modal-btns"><button class="mb mb-save" onclick="closeConn()">Done</button></div>
+  </div>
+</div>
+
+<!-- ===== GUIDED LEARNING ===== -->
+<div class="ov" id="gl-ov">
+  <div class="modal">
+    <h3>🎓 Guided Learning</h3>
+    <div class="msub">Pick a path. Damru becomes your patient tutor — step by step, level 0 to pro, with checks and practice.</div>
+    <div class="gl-list" id="gl-list"></div>
+    <div class="modal-btns"><button class="mb mb-cancel" onclick="closeGuided()">Close</button></div>
+  </div>
+</div>
+
+<!-- ===== BRAIN LAB ===== -->
 <div class="ov" id="lab">
   <div class="modal lab-modal">
-    <h3>🧪 Damru Open Lab</h3>
-    <p class="lab-stat" id="lab-stat">Damru ka azad dimaag — yahan wo khud, bina kisi limit ke, har minute seekhta rehta hai.</p>
+    <h3>🧠 Damru Brain Lab</h3>
+    <div class="msub">Live view of the shared brain — verified Q&amp;A that make Damru smarter for everyone.</div>
+    <div class="lab-stat" id="lab-stat">Loading…</div>
     <div class="lab-explore">
-      <input id="lab-inp" placeholder="Damru, explore: fusion rockets, CRISPR, RAS polity…" onkeydown="if(event.key==='Enter')labExplore()"/>
+      <input id="lab-inp" placeholder="Teach Damru something new…" onkeydown="if(event.key==='Enter')labExplore()"/>
       <button class="mb mb-save" onclick="labExplore()">Explore</button>
     </div>
-    <div class="sb-sec" style="padding-left:0">Live feed — abhi ye seekh raha hai</div>
-    <div class="lab-feed" id="lab-feed"><div class="lab-empty">Loading…</div></div>
-    <div class="modal-btns">
-      <button class="mb mb-cancel" onclick="closeLab()">Close</button>
-      <button class="mb mb-save" onclick="loadLabFeed()">Refresh</button>
+    <div class="lab-feed" id="lab-feed"></div>
+    <div class="modal-btns"><button class="mb mb-cancel" onclick="closeLab()">Close</button></div>
+  </div>
+</div>
+
+<!-- ===== VOICE CONVERSATION ===== -->
+<div class="vc" id="vc">
+  <div class="vc-orb" id="vc-orb"></div>
+  <div class="vc-status" id="vc-status">Tap to talk</div>
+  <div class="vc-txt" id="vc-txt"></div>
+  <div class="vc-btns">
+    <button class="vc-mute" id="vc-mute" onclick="vcMute()" title="Mute mic">🎙️</button>
+    <button class="vc-end" onclick="stopVoice()" title="End">✕</button>
+  </div>
+</div>
+
+<!-- ===== ONBOARDING (liquid glass auto slides) ===== -->
+<div class="ob" id="ob">
+  <div class="ob-aurora"></div>
+  <div class="ob-bar" id="ob-bar"></div>
+  <div class="ob-card">
+    <div class="glass">
+      <div id="ob-slides"></div>
+      <div class="ob-dots" id="ob-dots"></div>
+      <div class="ob-actions">
+        <button class="ob-skip" onclick="closeIntro()">Skip</button>
+        <button class="ob-next" id="ob-next" onclick="obNext()">Next</button>
+      </div>
     </div>
   </div>
 </div>
-<div class="toast" id="toast"></div>
 
+<div class="toast" id="toast"></div>
 <script>
+/* Damru boot: custom animated dog logo (SVG, no emoji) + avatars, defined before engine */
+function dogSvg(size,cls){size=size||26;return `<svg class='dmlogo ${cls||''}' width='${size}' height='${size}' viewBox='0 0 64 64' xmlns='http://www.w3.org/2000/svg' aria-label='Damru'><defs><linearGradient id='dgrad' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='#e79a7d'/><stop offset='1' stop-color='#d97757'/></linearGradient></defs><g class='ears' fill='#b25c40'><path d='M18 10 C10 12 9 24 15 33 L27 24 C22 18 24 11 24 9 C22 8 20 8.6 18 10 Z'/><path d='M46 10 C54 12 55 24 49 33 L37 24 C42 18 40 11 40 9 C42 8 44 8.6 46 10 Z'/></g><g class='head'><path d='M32 15 C44 15 51 24 51 36 C51 47 43 54 32 54 C21 54 13 47 13 36 C13 24 20 15 32 15 Z' fill='url(#dgrad)'/><ellipse cx='32' cy='43.5' rx='12' ry='9' fill='#f5d2bd'/><circle class='eye' cx='25' cy='33' r='2.7' fill='#241f1c'/><circle class='eye' cx='39' cy='33' r='2.7' fill='#241f1c'/><path d='M32 40 c-3 0 -4.8 1.9 -4.8 3.2 c0 1.6 2.1 2.7 4.8 2.7 c2.7 0 4.8 -1.1 4.8 -2.7 C36.8 41.9 35 40 32 40 Z' fill='#241f1c'/><path d='M32 46.4 L32 50' stroke='#a06848' stroke-width='1.4' stroke-linecap='round'/></g></svg>`;}
+var DOGAV=dogSvg(24);
+var USERAV=`<svg width='19' height='19' viewBox='0 0 24 24'><circle cx='12' cy='8.2' r='4' fill='#c9c6bd'/><path d='M4.2 21 c0 -5 3.8 -7.5 7.8 -7.5 s7.8 2.5 7.8 7.5 Z' fill='#c9c6bd'/></svg>`;
+</script>
+<script>
+
 /* ============================================================
    DAMRU AI — Standalone Beast Brain  (Claude-style UI)
    Engine: Pollinations (keyless) -> OpenRouter free models
@@ -486,7 +753,7 @@ function showWelcome(){ chatEl.innerHTML=welcomeHTML(); }
 function hideWelcome(){ const w=document.getElementById('welcome'); if(w) w.remove(); }
 function addMsg(role,html,raw,q,intent){
   const d=document.createElement('div'); d.className='msg '+(role==='user'?'user':'ai');
-  d.innerHTML='<div class="msg-av">'+(role==='user'?'🙋':'🐕')+'</div><div class="bubble">'+html+'</div>';
+  d.innerHTML='<div class="msg-av">'+(role==='user'?USERAV:DOGAV)+'</div><div class="bubble">'+html+'</div>';
   chatEl.appendChild(d);
   if(role==='ai'&&raw!==undefined){
     const b=d.querySelector('.bubble');
@@ -569,6 +836,7 @@ function fbDown(btn){
   const a=btn.closest('.acts'); fbLog(a.dataset.q,a.dataset.raw,'down'); _fbLock(a); btn.textContent='✓'; toast('Thanks for the feedback');
 }
 function autoLearn(ex){
+  if(window.__noLearn) return;
   if(!ex||!ex.q||!ex.ans) return;
   if(ex.intent==='chat') return;
   if(ex.ans.length<80) return;
@@ -595,9 +863,10 @@ async function send(){
   busy=true; document.getElementById('send').disabled=true;
 
   let intent=detectIntent(msg);
+  intent=biasIntent(intent);
   if(/(video|reel|clip|short film)[^]{0,28}(banao|bana|create|generate|make|chahiye)|(banao|bana|create|generate|make)[^]{0,28}(video|reel|clip|short film)/i.test(msg)) intent='videogen';
   const tEl=document.createElement('div'); tEl.className='msg ai';
-  tEl.innerHTML='<div class="msg-av">🐕</div><div class="bubble"><span class="intent-tag">'+intent+'</span><div class="typing"><span></span><span></span><span></span></div></div>';
+  tEl.innerHTML='<div class="msg-av">'+DOGAV+'</div><div class="bubble"><span class="intent-tag">'+intent+'</span><div class="typing"><span></span><span></span><span></span></div></div>';
   chatEl.appendChild(tEl); scrollDown();
 
   if(intent==='videogen'){
@@ -616,13 +885,15 @@ async function send(){
     if(!reply){
       let sys = PROMPTS[intent]||PROMPTS.general;
       if(deepThink){ sys += "\n\nDEEP THINK MODE: Think carefully and reason step by step. First write a short section titled '🤔 Reasoning' with your numbered logical steps, then a section titled '✅ Answer' with the clear, verified final answer."; }
+      sys = applyMode(sys, intent);
+      try{ const _web = await maybeWeb(msg, intent); if(_web){ sys += "\n\n[WEB RESULTS — fresh info, use & cite these]\n" + _web; } }catch(_e){}
       const learned = await kbSearch(msg);
       if(learned && learned.length){
         sys += "\n\n[KNOWLEDGE BASE] Previously verified Q&A you gave (rely on them or improve if relevant):\n" + learned.map(k=>'Q: '+k.question+'\nA: '+String(k.answer).slice(0,700)).join('\n---\n');
       }
       const ctx = history.slice(-10).map(h=>({role:h.role,content:h.content}));
       const messages=[{role:'system',content:sys}, ...ctx, {role:'user',content:msg}];
-      reply = await engine(messages, deepThink?Math.max(TOKENS[intent]||1100,2400):TOKENS[intent], TEMP[intent], intent);
+      reply = await engine(messages, modeTokens(intent), modeTemp(intent), intent);
       cacheSet(msg,intent,reply);
     }
     tEl.remove();
@@ -666,7 +937,7 @@ async function makeVideo(msg,tEl){
   if(tEl) tEl.remove();
   const d=document.createElement('div'); d.className='msg ai';
   const vid='v'+Math.random().toString(36).slice(2,8);
-  d.innerHTML='<div class="msg-av">🐕</div><div class="bubble"><span class="intent-tag">video</span><div class="img-load"><div class="typing"><span></span><span></span><span></span></div>storyboard + scenes ban rahe hain…</div></div>';
+  d.innerHTML='<div class="msg-av">'+DOGAV+'</div><div class="bubble"><span class="intent-tag">video</span><div class="img-load"><div class="typing"><span></span><span></span><span></span></div>storyboard + scenes ban rahe hain…</div></div>';
   chatEl.appendChild(d); scrollDown();
   const sys='You are a creative video director. For the user topic, create a short educational video storyboard of 4 to 6 scenes. Return ONLY a valid JSON array. Each item must be an object with exactly two string fields: "narration" (one or two spoken sentences in the SAME language and script as the user) and "image" (a concise vivid ENGLISH image-generation prompt describing that scene visually). No prose, no markdown, no extra keys.';
   let scenes=[];
@@ -715,7 +986,7 @@ async function handleImage(msg,tEl){
   const url=imgUrl(prompt);
   tEl.remove();
   const d=document.createElement('div'); d.className='msg ai';
-  d.innerHTML='<div class="msg-av">🐕</div><div class="bubble"><span class="intent-tag">image</span><div class="img-wrap"><div class="img-load"><div class="typing"><span></span><span></span><span></span></div>creating your image…</div></div></div>';
+  d.innerHTML='<div class="msg-av">'+DOGAV+'</div><div class="bubble"><span class="intent-tag">image</span><div class="img-wrap"><div class="img-load"><div class="typing"><span></span><span></span><span></span></div>creating your image…</div></div></div>';
   chatEl.appendChild(d); scrollDown();
   const wrap=d.querySelector('.img-wrap');
   const im=new Image();
@@ -772,7 +1043,7 @@ async function readImageFile(f){
     chatEl.appendChild(ud); scrollDown();
     busy=true; document.getElementById('send').disabled=true;
     const tEl=document.createElement('div'); tEl.className='msg ai';
-    tEl.innerHTML='<div class="msg-av">🐕</div><div class="bubble"><span class="intent-tag">vision</span><div class="typing"><span></span><span></span><span></span></div></div>';
+    tEl.innerHTML='<div class="msg-av">'+DOGAV+'</div><div class="bubble"><span class="intent-tag">vision</span><div class="typing"><span></span><span></span><span></span></div></div>';
     chatEl.appendChild(tEl); scrollDown();
     try{
       const ans=await visionAsk(dataURL,'');
@@ -836,5 +1107,108 @@ function labExplore(){
   renderChatList();
 })();
 </script>
-</body>
-</html>
+<script>
+/* ===== Damru feature layer 1: prefs, modes, model switch, web ===== */
+let PREFS={};
+const ACCENTS=[['#d97757','#e79a7d'],['#c98a52','#e0b56c'],['#6c8ed9','#8fb0ea'],['#5fb39a','#7fd1b8'],['#b56cd9','#cd90ec'],['#d05f6c','#e88c96']];
+function loadPrefs(){try{PREFS=JSON.parse(localStorage.getItem('damru_prefs')||'{}')}catch(e){PREFS={}}}
+function savePrefs(){try{localStorage.setItem('damru_prefs',JSON.stringify(PREFS))}catch(e){}}
+function hexA(hex,al){const n=parseInt(hex.slice(1),16);return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+al+')';}
+function applyPrefs(){const a=(PREFS.accent&&PREFS.accent.length)?PREFS.accent:ACCENTS[0];const r=document.documentElement.style;r.setProperty('--accent',a[0]);r.setProperty('--accent2',a[1]);r.setProperty('--accent-dim',hexA(a[0],0.14));r.setProperty('--ui',(PREFS.fontsize||16)+'px');if(PREFS.mode&&MODES[PREFS.mode])MODE=PREFS.mode;window.__noLearn=(PREFS.learn===false);}
+const MODES={
+ beast:{name:'Damru Beast',sub:'balanced · all-round',desc:'Best all-rounder for everyday questions, chat and tasks.',ic:dogSvg(20),tmul:1,tadd:0,sys:''},
+ flash:{name:'Damru Flash',sub:'fast · concise',desc:'Quick, to-the-point answers when you want speed.',ic:'⚡',tmul:0.6,tadd:0.05,sys:' Reply fast and concise. Keep it short and direct unless more detail is asked for.'},
+ think:{name:'Damru Think',sub:'deep reasoning',desc:'Reasons step-by-step for maths, logic and hard problems.',ic:'🧠',tmul:2,tadd:-0.1,sys:' Think step by step. Write a short reasoning section, then a clear final answer.'},
+ research:{name:'Damru Research',sub:'web + deep report',desc:'Searches the web, then writes a structured, cited report.',ic:'🔬',tmul:2.4,tadd:-0.05,web:true,sys:' Deep-research mode: use the WEB RESULTS as fresh evidence. Write a structured report with headings, cite sources inline, and note any uncertainty honestly.'},
+ coder:{name:'Damru Coder',sub:'developer · max',desc:'Full code, apps, PPTs and live canvas previews for builders.',ic:'‹/›',tmul:2.2,tadd:-0.15,bias:'code',sys:' DEVELOPER MODE: produce complete, production-quality working code. For any web page, app, chart, diagram or slide deck, output ONE self-contained runnable file inside an html code fence so it previews live in the Canvas.'}
+};
+let MODE='beast';
+function applyMode(sys){const m=MODES[MODE]||MODES.beast;return sys+(m.sys||'');}
+function modeTokens(intent){let base=1100;if(typeof TOKENS!=='undefined'&&TOKENS[intent])base=TOKENS[intent];const m=MODES[MODE]||MODES.beast;let t=Math.round(base*(m.tmul||1));if(typeof deepThink!=='undefined'&&deepThink)t=Math.max(t,2400);return Math.min(t,8000);}
+function modeTemp(intent){let base=0.6;if(typeof TEMP!=='undefined'&&TEMP[intent]!=null)base=TEMP[intent];const m=MODES[MODE]||MODES.beast;return Math.max(0.1,Math.min(1,base+(m.tadd||0)));}
+function biasIntent(intent){const m=MODES[MODE]||MODES.beast;if(m.bias&&['imagegen','videogen','vision'].indexOf(intent)<0)return m.bias;return intent;}
+function buildModel(){const d=document.getElementById('mdrop');if(!d)return;d.innerHTML=Object.keys(MODES).map(function(k){const m=MODES[k];return `<div class='mopt ${k===MODE?'sel':''}' onclick='setMode(&quot;${k}&quot;)'><div class='mo-ic'>${m.ic}</div><div style='flex:1;min-width:0'><div class='mo-t'>${m.name}</div><div class='mo-d'>${m.desc}</div></div><div class='mo-chk'>✓</div></div>`;}).join('');updateModelBtn();}
+function updateModelBtn(){const m=MODES[MODE];const n=document.getElementById('model-name');if(n)n.textContent=m.name;const s=document.getElementById('model-sub');if(s)s.textContent=m.sub;const i=document.getElementById('model-ic');if(i)i.innerHTML=m.ic;}
+function toggleModel(e){if(e)e.stopPropagation();document.getElementById('mdrop').classList.toggle('on');}
+function setMode(k){if(!MODES[k])return;MODE=k;PREFS.mode=k;savePrefs();buildModel();const d=document.getElementById('mdrop');if(d)d.classList.remove('on');toast(MODES[k].name+' — '+MODES[k].sub);if(k==='coder')toggleCanvas(true);}
+function quickMode(k){setMode(k);const i=document.getElementById('inp');if(i)i.focus();}
+document.addEventListener('click',function(e){const w=document.querySelector('.modelwrap');const d=document.getElementById('mdrop');if(w&&d&&!w.contains(e.target))d.classList.remove('on');});
+let webOn=false;
+function toggleWeb(){webOn=!webOn;const p=document.getElementById('pill-web');if(p)p.classList.toggle('on',webOn);toast(webOn?'🌐 Web search ON':'Web search OFF');}
+function detectNeedsWeb(msg){return /\b(latest|current|today|news|update|2024|2025|2026|who is|kaun hai|kon hai|price|stock|score|weather|live|recent|breaking|nowadays|abhi|aaj)\b/i.test(msg);}
+async function maybeWeb(msg,intent){const m=MODES[MODE]||MODES.beast;const forced=webOn||m.web;const auto=(PREFS.webauto!==false)&&detectNeedsWeb(msg);if(!(forced||auto))return '';if(!forced&&['imagegen','videogen','vision','code','math'].indexOf(intent)>=0)return '';return await webSearch(msg);}
+async function webSearch(q){try{const s=await fetch('https://en.wikipedia.org/w/api.php?action=query&format=json&list=search&srlimit=3&srsearch='+encodeURIComponent(q)+'&origin=*').then(function(r){return r.json();});const hits=(s.query&&s.query.search)||[];if(!hits.length)return '';const out=[];for(const h of hits.slice(0,3)){const title=h.title.replace(/ /g,'_');let ex='';let url='https://en.wikipedia.org/wiki/'+encodeURIComponent(title);try{const sum=await fetch('https://en.wikipedia.org/api/rest_v1/page/summary/'+encodeURIComponent(title)).then(function(r){return r.ok?r.json():null;});if(sum){if(sum.extract)ex=sum.extract;if(sum.content_urls&&sum.content_urls.desktop)url=sum.content_urls.desktop.page;}}catch(e){}if(!ex)ex=(h.snippet||'').replace(/<[^>]+>/g,'');out.push('• '+h.title+': '+ex+' (Source: '+url+')');}return out.join('\n');}catch(e){return '';}}
+function openResearch(){setMode('research');closeSb();const i=document.getElementById('inp');if(i){i.placeholder='Kis topic par deep research chahiye? Web se latest info laa kar report banaunga…';i.focus();}toast('🔬 Research mode — apna topic likho');}
+/* ===== Damru feature layer 2: guided, connectors, canvas, voice ===== */
+const GUIDED=[{ic:'🐍',t:'Python Programming',d:'Zero to real projects'},{ic:'🌐',t:'Web Development',d:'HTML, CSS, JS to full sites'},{ic:'🧮',t:'Mathematics',d:'Basics to advanced, step-by-step'},{ic:'🤖',t:'AI & Machine Learning',d:'Concepts to building models'},{ic:'🗣️',t:'Spoken English',d:'Confident daily conversation'},{ic:'📚',t:'Exam Prep',d:'SSC, UPSC, JEE, NEET foundations'}];
+function buildGuided(){const l=document.getElementById('gl-list');if(!l)return;l.innerHTML=GUIDED.map(function(g,i){return `<div class='gl-card' onclick='startGuided(${i})'><div class='gi'>${g.ic}</div><div><div class='gl-t'>${g.t}</div><div class='gl-d'>${g.d}</div></div></div>`;}).join('');}
+function openGuided(){buildGuided();document.getElementById('gl-ov').classList.add('on');closeSb();}
+function closeGuided(){document.getElementById('gl-ov').classList.remove('on');}
+function startGuided(i){const g=GUIDED[i];closeGuided();const inp=document.getElementById('inp');inp.value='Guided learning mode: teach me '+g.t+' step by step from level 0 to advanced. First give a short numbered roadmap of the stages. Then begin Stage 1 with a simple explanation, one worked example, and one small practice question for me to solve. Wait for my answer before moving to the next stage.';send();}
+
+const CONNECTORS=[{id:'web',ic:'🌐',n:'Web Search',s:'Tap to enable',live:true},{id:'wiki',ic:'📖',n:'Wikipedia',s:'Tap to enable',live:true},{id:'gdrive',ic:'📁',n:'Google Drive',s:'Coming soon'},{id:'gmail',ic:'✉️',n:'Gmail',s:'Coming soon'},{id:'gcal',ic:'📅',n:'Calendar',s:'Coming soon'},{id:'github',ic:'🐙',n:'GitHub',s:'Coming soon'},{id:'notion',ic:'📝',n:'Notion',s:'Coming soon'},{id:'yt',ic:'▶️',n:'YouTube',s:'Coming soon'}];
+let connState={web:false,wiki:true};
+function buildConn(){const g=document.getElementById('conn-grid');if(!g)return;g.innerHTML=CONNECTORS.map(function(c){const on=!!connState[c.id];return `<div class='conn ${on?'on':''}' onclick='toggleConn(&quot;${c.id}&quot;)'><div class='ci'>${c.ic}</div><div><div class='cn'>${c.n}</div><div class='cs'>${on?'Connected':c.s}</div></div></div>`;}).join('');}
+function openConnectors(){buildConn();document.getElementById('conn-ov').classList.add('on');closeSb();}
+function closeConn(){document.getElementById('conn-ov').classList.remove('on');}
+function toggleConn(id){const c=CONNECTORS.find(function(x){return x.id===id;});if(!c)return;if(!c.live){toast(c.n+' — coming soon by SHIVA AI');return;}connState[id]=!connState[id];if(id==='web'){webOn=connState.web;const p=document.getElementById('pill-web');if(p)p.classList.toggle('on',webOn);}buildConn();toast(connState[id]?c.n+' connected ✓':c.n+' off');}
+
+function toggleCanvas(force){const open=(typeof force==='boolean')?force:!document.body.classList.contains('canvas-open');document.body.classList.toggle('canvas-open',open);}
+function cvTab(t){const p=(t==='preview');const a=document.getElementById('cvt-prev'),b=document.getElementById('cvt-code');if(a)a.classList.toggle('on',p);if(b)b.classList.toggle('on',!p);document.getElementById('cv-frame').style.display=p?'block':'none';document.getElementById('cv-code').style.display=p?'none':'block';}
+function openCanvas(html,title){const e=document.getElementById('cv-empty');if(e)e.style.display='none';document.getElementById('cv-title').textContent=title||'Canvas';document.getElementById('cv-code').value=html;document.getElementById('cv-frame').srcdoc=html;cvTab('preview');toggleCanvas(true);toast('🧱 Opened in Canvas');}
+function cvSync(){document.getElementById('cv-frame').srcdoc=document.getElementById('cv-code').value;}
+
+function speakRaw(raw){try{const clean=String(raw).replace(/[#*_>|]/g,' ').replace(/\[[^\]]*\]\([^)]*\)/g,'');const u=new SpeechSynthesisUtterance(clean);u.lang=/[\u0900-\u097F]/.test(clean)?'hi-IN':'en-IN';u.rate=PREFS.rate||1;speechSynthesis.cancel();speechSynthesis.speak(u);}catch(e){}}
+let autospeakArmed=false;
+function initObserver(){const chatEl2=document.getElementById('chat');if(!chatEl2)return;const mo=new MutationObserver(function(){document.querySelectorAll('.bubble pre:not([data-enh])').forEach(function(pre){pre.setAttribute('data-enh','1');const code=pre.querySelector('code');if(!code)return;const t=code.innerText.trim();if(t.length>40&&/<!doctype html|<html|<svg|<div|<canvas|<body|<table|<style/i.test(t)){const b=document.createElement('button');b.className='pre-cp pre-run';b.textContent='▶ Preview';b.addEventListener('click',function(){openCanvas(t,'Preview');});pre.appendChild(b);}});const vc=document.getElementById('vc');if(autospeakArmed&&PREFS.autospeak&&vc&&!vc.classList.contains('on')){const acts=document.querySelectorAll('.acts:not([data-spk])');acts.forEach(function(a,idx){a.setAttribute('data-spk','1');if(idx===acts.length-1&&a.dataset&&a.dataset.raw)speakRaw(a.dataset.raw);});}});mo.observe(chatEl2,{childList:true,subtree:true});}
+
+let vcActive=false,vcMuted=false,vcRecog=null;
+function vcEl(){return document.getElementById('vc');}
+function vcSet(status,txt,cls){const s=document.getElementById('vc-status');if(s)s.textContent=status;if(txt!=null){const x=document.getElementById('vc-txt');if(x)x.textContent=txt;}const vc=vcEl();vc.classList.remove('listening','speaking');if(cls)vc.classList.add(cls);}
+function startVoice(){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){toast('Voice conversation is not supported on this browser');return;}vcActive=true;vcMuted=false;vcEl().classList.add('on');vcSet('Listening…','Bolna shuru karo…','listening');vcListen();}
+function stopVoice(){vcActive=false;try{if(vcRecog)vcRecog.stop();}catch(e){}try{speechSynthesis.cancel();}catch(e){}const vc=vcEl();vc.classList.remove('on','listening','speaking');}
+function vcMute(){vcMuted=!vcMuted;const b=document.getElementById('vc-mute');if(b)b.style.opacity=vcMuted?'0.5':'1';if(vcMuted){try{if(vcRecog)vcRecog.stop();}catch(e){}vcSet('Muted — tap mic to resume',null,null);}else if(vcActive){vcListen();}}
+function vcListen(){if(!vcActive||vcMuted)return;const SR=window.SpeechRecognition||window.webkitSpeechRecognition;try{vcRecog=new SR();}catch(e){return;}vcRecog.lang='hi-IN';vcRecog.interimResults=true;vcRecog.continuous=false;vcSet('Listening…',null,'listening');let fin='';vcRecog.onresult=function(e){let t='';for(let i=0;i<e.results.length;i++){t+=e.results[i][0].transcript;if(e.results[i].isFinal)fin+=e.results[i][0].transcript;}const x=document.getElementById('vc-txt');if(x)x.textContent=t;};vcRecog.onerror=function(){};vcRecog.onend=function(){if(!vcActive||vcMuted)return;const said=(fin||((document.getElementById('vc-txt')||{}).textContent||'')).trim();if(!said){vcListen();return;}vcAnswer(said);};try{vcRecog.start();}catch(e){}}
+async function vcAnswer(said){vcSet('Soch raha hoon…',said,null);try{let intent=detectIntent(said);intent=biasIntent(intent);let sys=(PROMPTS[intent]||PROMPTS.general)+' You are on a live voice call. Reply in a natural, warm, conversational way in 2 to 5 short sentences. Do not use markdown, code blocks or bullet lists.';sys=applyMode(sys);const ctx=history.slice(-6).map(function(h){return {role:h.role,content:h.content};});const messages=[{role:'system',content:sys}].concat(ctx,[{role:'user',content:said}]);const reply=await engine(messages,Math.min(modeTokens(intent),700),modeTemp(intent),intent);history.push({role:'user',content:said},{role:'assistant',content:reply,q:said,intent:intent});if(typeof saveCur==='function')saveCur();vcSpeak(reply);}catch(e){vcSet('Listening…','(dobara boliye)','listening');vcListen();}}
+function vcSpeak(text){if(!vcActive)return;vcSet('Bol raha hoon…',String(text).slice(0,220),'speaking');const clean=String(text).replace(/[#*_>|]/g,' ').replace(/\[[^\]]*\]\([^)]*\)/g,'');const u=new SpeechSynthesisUtterance(clean);u.lang=/[\u0900-\u097F]/.test(clean)?'hi-IN':'en-IN';u.rate=PREFS.rate||1;u.onend=function(){if(vcActive)vcListen();};try{speechSynthesis.cancel();speechSynthesis.speak(u);}catch(e){if(vcActive)vcListen();}}
+/* ===== Damru feature layer 3: onboarding, settings, welcome, init ===== */
+const SLIDES=[{ic:'DOG',h:'Meet Damru',p:'Your self-learning AI companion by SHIVA AI. Coding, maths, research, writing, images and voice — one big playground.',specs:['Multilingual','Voice-ready','Always free']},{ic:'🧠',h:'A brain that grows',p:'Every verified answer is saved to a shared memory, so Damru literally gets smarter every day — thousands of lessons and counting.',specs:['Self-learning','Shared memory','Semantic recall']},{ic:'🧩',h:'Five minds in one',p:'Switch modes like the big labs do: Beast, Flash, Think, Research and Coder. Pick the right brain for any task.',specs:['Model switch','Deep think','Developer mode']},{ic:'🔬',h:'Sees the live web',p:'Ask about a person or a current event and Damru searches the web in the background, then answers with fresh, cited info.',specs:['Web search','Deep research','Citations']},{ic:'🧱',h:'A real workshop',p:'Build apps, pages, charts and slides and watch them run live in the Canvas. Connect your tools and learn step-by-step. Chalo shuru karein!',specs:['Canvas','Connectors','Guided learning']}];
+let obI=0,obRaf=null,obStart=0;
+function buildIntro(){const wrap=document.getElementById('ob-slides');if(!wrap)return;wrap.innerHTML=SLIDES.map(function(s,i){const ic=(s.ic==='DOG')?dogSvg(48,'big'):s.ic;const specs=s.specs.map(function(x){return `<span class='ob-spec'>${x}</span>`;}).join('');return `<div class='ob-slide ${i===0?'on':''}'><div class='ob-ic'>${ic}</div><div class='ob-h'>${s.h}</div><div class='ob-p'>${s.p}</div><div class='ob-specs'>${specs}</div></div>`;}).join('');document.getElementById('ob-dots').innerHTML=SLIDES.map(function(s,i){return `<div class='ob-dot ${i===0?'on':''}' onclick='obGo(${i})'></div>`;}).join('');}
+function obShow(i){obI=(i+SLIDES.length)%SLIDES.length;const sl=document.querySelectorAll('.ob-slide');sl.forEach(function(el,j){el.classList.toggle('on',j===obI);});document.querySelectorAll('.ob-dot').forEach(function(el,j){el.classList.toggle('on',j===obI);});const nx=document.getElementById('ob-next');if(nx)nx.textContent=(obI===SLIDES.length-1)?'Get started':'Next';obRestart();}
+function obGo(i){obShow(i);}
+function obNext(){if(obI>=SLIDES.length-1){closeIntro();return;}obShow(obI+1);}
+function obRestart(){obStart=Date.now();if(obRaf)cancelAnimationFrame(obRaf);function tick(){const ob=document.getElementById('ob');if(!ob||!ob.classList.contains('on'))return;const p=Math.min(1,(Date.now()-obStart)/5200);const bar=document.getElementById('ob-bar');if(bar)bar.style.width=(p*100)+'%';if(p>=1){if(obI>=SLIDES.length-1){closeIntro();}else{obShow(obI+1);}return;}obRaf=requestAnimationFrame(tick);}obRaf=requestAnimationFrame(tick);}
+function startIntro(force){if(!force&&localStorage.getItem('damru_onboarded'))return;buildIntro();obI=0;const ob=document.getElementById('ob');if(ob)ob.classList.add('on');obShow(0);}
+function closeIntro(){const ob=document.getElementById('ob');if(ob)ob.classList.remove('on');if(obRaf)cancelAnimationFrame(obRaf);try{localStorage.setItem('damru_onboarded','1');}catch(e){}}
+function replayIntro(){closeSettings();startIntro(true);}
+
+function openSettings(){loadPrefs();const sl=document.getElementById('set-logo');if(sl)sl.innerHTML=dogSvg(22);const ms=document.getElementById('set-mode');if(ms)ms.innerHTML=Object.keys(MODES).map(function(k){return `<option value='${k}' ${k===MODE?'selected':''}>${MODES[k].name}</option>`;}).join('');const cur=JSON.stringify(PREFS.accent||ACCENTS[0]);const ac=document.getElementById('set-accent');if(ac)ac.innerHTML=ACCENTS.map(function(a,i){return `<div class='sw ${JSON.stringify(a)===cur?'sel':''}' style='background:${a[0]}' onclick='pickAccent(${i})'></div>`;}).join('');document.getElementById('set-fontsize').value=PREFS.fontsize||16;document.getElementById('set-lang').value=PREFS.lang||'auto';document.getElementById('set-rate').value=PREFS.rate||1;setTgl('set-autospeak',PREFS.autospeak);setTgl('set-learn',PREFS.learn!==false);setTgl('set-webauto',PREFS.webauto!==false);document.getElementById('ov').classList.add('on');}
+function pickAccent(i){PREFS.accent=ACCENTS[i];document.querySelectorAll('#set-accent .sw').forEach(function(s,j){s.classList.toggle('sel',j===i);});const r=document.documentElement.style;r.setProperty('--accent',ACCENTS[i][0]);r.setProperty('--accent2',ACCENTS[i][1]);r.setProperty('--accent-dim',hexA(ACCENTS[i][0],0.14));}
+function setTgl(id,on){const e=document.getElementById(id);if(e)e.classList.toggle('on',!!on);}
+function tgl(el){el.classList.toggle('on');}
+function closeSettings(){document.getElementById('ov').classList.remove('on');}
+function saveSettings(){PREFS.fontsize=+document.getElementById('set-fontsize').value;PREFS.lang=document.getElementById('set-lang').value;PREFS.rate=+document.getElementById('set-rate').value;PREFS.autospeak=document.getElementById('set-autospeak').classList.contains('on');PREFS.learn=document.getElementById('set-learn').classList.contains('on');PREFS.webauto=document.getElementById('set-webauto').classList.contains('on');const mv=document.getElementById('set-mode').value;if(mv&&MODES[mv]){MODE=mv;PREFS.mode=mv;}savePrefs();applyPrefs();buildModel();closeSettings();toast('Settings saved ✓');}
+
+function pick(id){if(typeof closeAtt==='function')closeAtt();const e=document.getElementById(id);if(e)e.click();}
+function wipeChats(){if(!confirm('Clear all chats permanently? This cannot be undone.'))return;try{localStorage.removeItem('damru_chats');localStorage.removeItem('damru_current');}catch(e){}location.reload();}
+function toggleDeepThink(){deepThink=!deepThink;const b=document.getElementById('dtbtn');if(b)b.classList.toggle('on',deepThink);toast(deepThink?'🧠 Think ON — step-by-step':'Think OFF');}
+
+function newChips(){const c=[['✨ Explain anything','Explain an interesting concept in simple words with a real example'],['💻 Build an app','Build a clean to-do list web app in a single HTML file'],['🔬 Research a topic','Research the latest developments in electric vehicles and summarize with sources'],['🔢 Solve maths','Solve a maths problem step by step and explain each step'],['✍️ Write for me','Write a formal leave application letter'],['🎨 Make an image','Create a cinematic image of a mountain sunrise']];return c.map(function(x){return `<div class='chip' onclick='chip(&quot;${x[1]}&quot;)'>${x[0]}</div>`;}).join('');}
+function welcomeHTML(){return `<div class='welcome' id='welcome'><div class='wc-logo'>${dogSvg(88,'big')}</div><div class='wc-hi'>${greeting()}, I'm Damru</div><div class='wc-sub'>Ask me anything — code, maths, research, writing, GK or exam prep. Send a photo or screenshot and I read it. Talk to me by voice, switch modes, or build apps live in the Canvas. Main aapki bhasha me jawab deta hoon.</div><div class='chips' id='chips'>${newChips()}</div></div>`;}
+
+/* ===== init ===== */
+(function(){
+ try{loadPrefs();applyPrefs();}catch(e){}
+ try{const b=document.getElementById('brand-logo');if(b)b.innerHTML=dogSvg(27);}catch(e){}
+ try{buildModel();}catch(e){}
+ try{buildConn();}catch(e){}
+ try{buildGuided();}catch(e){}
+ try{initObserver();}catch(e){}
+ try{if(typeof history!=='undefined'&&history&&history.length){renderMessages();}else{showWelcome();}}catch(e){}
+ try{const b=document.getElementById('dtbtn');if(b&&typeof deepThink!=='undefined')b.classList.toggle('on',deepThink);}catch(e){}
+ setTimeout(function(){autospeakArmed=true;},1800);
+ if(!localStorage.getItem('damru_onboarded'))setTimeout(function(){try{startIntro(false);}catch(e){}},400);
+})();
+</script>
+</body></html>
