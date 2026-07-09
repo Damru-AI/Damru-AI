@@ -1187,7 +1187,51 @@ let webOn=false;
 function toggleWeb(){webOn=!webOn;const p=document.getElementById('pill-web');if(p)p.classList.toggle('on',webOn);toast(webOn?'🌐 Web search ON':'Web search OFF');}
 function detectNeedsWeb(msg){return /\b(latest|current|today|news|update|2024|2025|2026|who is|kaun hai|kon hai|price|stock|score|weather|live|recent|breaking|nowadays|abhi|aaj)\b/i.test(msg);}
 async function maybeWeb(msg,intent){const m=MODES[MODE]||MODES.beast;const forced=webOn||m.web;const auto=(PREFS.webauto!==false)&&detectNeedsWeb(msg);if(!(forced||auto))return '';if(!forced&&['imagegen','videogen','vision','code','math'].indexOf(intent)>=0)return '';return await webSearch(msg);}
-async function webSearch(q){try{const s=await fetch('https://en.wikipedia.org/w/api.php?action=query&format=json&list=search&srlimit=3&srsearch='+encodeURIComponent(q)+'&origin=*').then(function(r){return r.json();});const hits=(s.query&&s.query.search)||[];if(!hits.length)return '';const out=[];for(const h of hits.slice(0,3)){const title=h.title.replace(/ /g,'_');let ex='';let url='https://en.wikipedia.org/wiki/'+encodeURIComponent(title);try{const sum=await fetch('https://en.wikipedia.org/api/rest_v1/page/summary/'+encodeURIComponent(title)).then(function(r){return r.ok?r.json():null;});if(sum){if(sum.extract)ex=sum.extract;if(sum.content_urls&&sum.content_urls.desktop)url=sum.content_urls.desktop.page;}}catch(e){}if(!ex)ex=(h.snippet||'').replace(/<[^>]+>/g,'');out.push('• '+h.title+': '+ex+' (Source: '+url+')');}return out.join('\n');}catch(e){return '';}}
+async function webSearch(q){
+  // Backend Router v1 first: keeps tool logic off the public frontend.
+  try{
+    const r=await fetch(DAMRU_API+'/web',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({query:q,limit:3})
+    });
+    if(r.ok){
+      const data=await r.json();
+      const hits=data.results||[];
+      if(hits.length){
+        return hits.map(function(h){
+          return '• '+h.title+': '+(h.snippet||'')+' (Source: '+h.url+')';
+        }).join('\n');
+      }
+    }
+  }catch(e){}
+
+  // Fallback: browser-side Wikipedia search if backend is unavailable.
+  try{
+    const res=await fetch('https://en.wikipedia.org/w/api.php?action=query&format=json&list=search&srlimit=3&srsearch='+encodeURIComponent(q)+'&origin=*');
+    const data=await res.json();
+    const hits=(data.query&&data.query.search)||[];
+    if(!hits.length) return '';
+    const out=[];
+    for(const h of hits.slice(0,3)){
+      const title=h.title.replace(/ /g,'_');
+      let ex='';
+      let url='https://en.wikipedia.org/wiki/'+encodeURIComponent(title);
+      try{
+        const sum=await fetch('https://en.wikipedia.org/api/rest_v1/page/summary/'+encodeURIComponent(title)).then(function(r){return r.ok?r.json():null;});
+        if(sum){
+          if(sum.extract) ex=sum.extract;
+          if(sum.content_urls&&sum.content_urls.desktop) url=sum.content_urls.desktop.page;
+        }
+      }catch(e){}
+      if(!ex) ex=(h.snippet||'').replace(/<[^>]+>/g,'');
+      out.push('• '+h.title+': '+ex+' (Source: '+url+')');
+    }
+    return out.join('\n');
+  }catch(e){
+    return '';
+  }
+}
 function openResearch(){setMode('research');closeSb();const i=document.getElementById('inp');if(i){i.placeholder='Kis topic par deep research chahiye? Web se latest info laa kar report banaunga…';i.focus();}toast('🔬 Research mode — apna topic likho');}
 /* ===== Damru feature layer 2: guided, connectors, canvas, voice ===== */
 const GUIDED=[{ic:'🐍',t:'Python Programming',d:'Zero to real projects'},{ic:'🌐',t:'Web Development',d:'HTML, CSS, JS to full sites'},{ic:'🧮',t:'Mathematics',d:'Basics to advanced, step-by-step'},{ic:'🤖',t:'AI & Machine Learning',d:'Concepts to building models'},{ic:'🗣️',t:'Spoken English',d:'Confident daily conversation'},{ic:'📚',t:'Exam Prep',d:'SSC, UPSC, JEE, NEET foundations'}];
@@ -1205,12 +1249,26 @@ function toggleConn(id){const c=CONNECTORS.find(function(x){return x.id===id;});
 
 function toggleCanvas(force){const open=(typeof force==='boolean')?force:!document.body.classList.contains('canvas-open');document.body.classList.toggle('canvas-open',open);}
 function cvTab(t){const p=(t==='preview');const a=document.getElementById('cvt-prev'),b=document.getElementById('cvt-code');if(a)a.classList.toggle('on',p);if(b)b.classList.toggle('on',!p);document.getElementById('cv-frame').style.display=p?'block':'none';document.getElementById('cv-code').style.display=p?'none':'block';}
-function openCanvas(html,title){const e=document.getElementById('cv-empty');if(e)e.style.display='none';document.getElementById('cv-title').textContent=title||'Canvas';document.getElementById('cv-code').value=html;document.getElementById('cv-frame').srcdoc=html;cvTab('preview');toggleCanvas(true);toast('🧱 Opened in Canvas');}
-function cvSync(){document.getElementById('cv-frame').srcdoc=document.getElementById('cv-code').value;}
+function canvasEsc(x){return String(x||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function isRenderableArtifact(code){return /<!doctype html|<html|<svg|<canvas|<body|<style|<script|<div|<section|<main|<table/i.test(String(code||''));}
+function codeLangFromPre(pre){const c=pre&&pre.querySelector&&pre.querySelector('code');if(!c)return 'code';const cls=c.className||'';const m=cls.match(/language-([a-z0-9+#-]+)/i);return m?m[1].toLowerCase():'code';}
+function openCanvas(content,title,kind){
+  const code=String(content||''); const render=(kind==='preview')||(kind!=='code'&&isRenderableArtifact(code));
+  const e=document.getElementById('cv-empty');if(e)e.style.display='none';
+  document.getElementById('cv-title').textContent=title||'Canvas';
+  document.getElementById('cv-code').value=code;
+  if(render){document.getElementById('cv-frame').srcdoc=code;cvTab('preview');}
+  else{
+    document.getElementById('cv-frame').srcdoc='<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;background:#1a1a18;color:#e8e5dc;font:14px/1.55 ui-monospace,Menlo,Consolas,monospace}pre{white-space:pre-wrap;margin:0;padding:18px}</style></head><body><pre>'+canvasEsc(code)+'</pre></body></html>';
+    cvTab('code');
+  }
+  toggleCanvas(true);toast(render?'🧱 Preview opened in Canvas':'🧱 Raw code opened in Canvas');
+}
+function cvSync(){const code=document.getElementById('cv-code').value;if(isRenderableArtifact(code)){document.getElementById('cv-frame').srcdoc=code;}else{document.getElementById('cv-frame').srcdoc='<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;background:#1a1a18;color:#e8e5dc;font:14px/1.55 ui-monospace,Menlo,Consolas,monospace}pre{white-space:pre-wrap;margin:0;padding:18px}</style></head><body><pre>'+canvasEsc(code)+'</pre></body></html>';}}
 
 function speakRaw(raw){try{const clean=String(raw).replace(/[#*_>|]/g,' ').replace(/\[[^\]]*\]\([^)]*\)/g,'');const u=new SpeechSynthesisUtterance(clean);u.lang=/[\u0900-\u097F]/.test(clean)?'hi-IN':'en-IN';u.rate=PREFS.rate||1;speechSynthesis.cancel();speechSynthesis.speak(u);}catch(e){}}
 let autospeakArmed=false;
-function initObserver(){const chatEl2=document.getElementById('chat');if(!chatEl2)return;const mo=new MutationObserver(function(){document.querySelectorAll('.bubble pre:not([data-enh])').forEach(function(pre){pre.setAttribute('data-enh','1');const code=pre.querySelector('code');if(!code)return;const t=code.innerText.trim();if(t.length>40&&/<!doctype html|<html|<svg|<div|<canvas|<body|<table|<style/i.test(t)){const b=document.createElement('button');b.className='pre-cp pre-run';b.textContent='▶ Preview';b.addEventListener('click',function(){openCanvas(t,'Preview');});pre.appendChild(b);}});const vc=document.getElementById('vc');if(autospeakArmed&&PREFS.autospeak&&vc&&!vc.classList.contains('on')){const acts=document.querySelectorAll('.acts:not([data-spk])');acts.forEach(function(a,idx){a.setAttribute('data-spk','1');if(idx===acts.length-1&&a.dataset&&a.dataset.raw)speakRaw(a.dataset.raw);});}});mo.observe(chatEl2,{childList:true,subtree:true});}
+function initObserver(){const chatEl2=document.getElementById('chat');if(!chatEl2)return;const mo=new MutationObserver(function(){document.querySelectorAll('.bubble pre:not([data-enh])').forEach(function(pre){pre.setAttribute('data-enh','1');const code=pre.querySelector('code');if(!code)return;const t=code.innerText.trim();if(t.length<25)return;const render=isRenderableArtifact(t);const lang=codeLangFromPre(pre);const b=document.createElement('button');b.className='pre-cp pre-run';b.textContent=render?'▶ Preview':'🧱 Canvas';b.addEventListener('click',function(){openCanvas(t,(render?'Preview':(lang.toUpperCase()+' file')),render?'preview':'code');});pre.appendChild(b);if((document.body.classList.contains('canvas-open')||MODE==='coder')&&t.length>80){setTimeout(function(){openCanvas(t,(render?'Preview':(lang.toUpperCase()+' file')),render?'preview':'code');},80);}});const vc=document.getElementById('vc');if(autospeakArmed&&PREFS.autospeak&&vc&&!vc.classList.contains('on')){const acts=document.querySelectorAll('.acts:not([data-spk])');acts.forEach(function(a,idx){a.setAttribute('data-spk','1');if(idx===acts.length-1&&a.dataset&&a.dataset.raw)speakRaw(a.dataset.raw);});}});mo.observe(chatEl2,{childList:true,subtree:true});}
 
 let vcActive=false,vcMuted=false,vcRecog=null;
 function vcEl(){return document.getElementById('vc');}
