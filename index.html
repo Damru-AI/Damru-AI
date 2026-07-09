@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
 <meta name="theme-color" content="#1f1e1d"/>
-<title>Damru AI — Your Smart Companion</title>
+<title>Damru AI — Beast UI v3</title>
 <meta name="description" content="Damru AI — a self-learning general-purpose AI: coding, research, maths, writing, GK & exams. Reads images, speaks your language, learns 24/7. Built by SHIVA AI."/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -307,6 +307,8 @@ body.canvas-open .canvas{width:min(46vw,560px)}
 </style>
 </head>
 <body>
+<!-- Damru merged build: second-model best UI + trained HF backend fallback, 9 Jul 2026 -->
+
 <div class="backdrop" id="backdrop" onclick="closeSb()"></div>
 
 <!-- ===== SIDEBAR ===== -->
@@ -542,6 +544,18 @@ const MODEL_ROUTES = {
 let OR_KEY = localStorage.getItem('damru_or_key') || '';
 let VIS_KEY = localStorage.getItem('damru_vision_key') || '';
 let deepThink = false;
+/* 🐕 Damru trained brain (HF Space backend) */
+const DAMRU_API = 'https://damaru-ai-damru.hf.space';
+async function damruBrain(messages){
+  const user = [...messages].reverse().find(m => m.role === 'user');
+  const res = await fetch(DAMRU_API + '/chat', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ message: user ? user.content : '' })
+  });
+  if(!res.ok) throw new Error('Damru brain ' + res.status);
+  const d = await res.json();
+  return d.answer || '';
+}
 const VID_STORE = {};
 
 const SB_URL = 'https://ukhknkkjudxpaxuwizxj.supabase.co';
@@ -687,6 +701,8 @@ async function engine(messages,maxTokens,temp,intent){
       try{ const o=await openrouter(m,messages,maxTokens,temp); if(o&&o.trim()) return o; }catch(e){ lastErr=e; }
     }
   }
+  // 🐕 Damru trained brain final fallback — app kabhi fully dead na ho
+  try{ const dm=await damruBrain(messages); if(dm&&dm.trim()) return dm; }catch(e){ lastErr=e; }
   throw lastErr || new Error('All engines are busy right now. Please try again in a moment.');
 }
 
@@ -1030,7 +1046,7 @@ async function visionAsk(dataURL,userText){
       try{ const o=await openrouter(m,messages,1700,0.4); if(o&&o.trim()) return o; }catch(e){}
     }
   }
-  throw new Error('Image samajhne me dikkat aayi. Settings me OpenRouter key add karke dobara try karein.');
+  throw new Error('Image samajhne me dikkat aayi. thodi der baad dobara try karein ya clear photo upload karein.');
 }
 async function readImageFile(f){
   if(!f||busy) return;
