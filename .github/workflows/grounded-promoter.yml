@@ -1,0 +1,42 @@
+name: Damru Grounded Promoter v1
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '20 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: damru-grounded-promoter
+  cancel-in-progress: true
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -q requests
+      - name: Promote verified observations to grounded knowledge
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          OBS_TABLE: damru_observations
+          KNOWLEDGE_TABLE: damru_knowledge
+          PROMOTE_ENABLED: ${{ vars.PROMOTE_ENABLED }}
+          PROMOTE_LIMIT: '500'
+          MIN_VERIFICATION_SCORE: '0.70'
+          MAX_AGE_DAYS: '30'
+        run: python phase9/grounded_promoter.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: damru-grounded-promoter-report
+          path: grounded_promoter_report.json
+          retention-days: 7
