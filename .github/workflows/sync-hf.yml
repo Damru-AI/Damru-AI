@@ -29,6 +29,6 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_REPO: Damaru-ai/damru-knowledge
-          SUPABASE_CLEANUP: 'true'    # auto-delete old Supabase rows (safe: only after HF upload)
+          SUPABASE_CLEANUP: 'false'    # auto-delete old Supabase rows (safe: only after HF upload)
           CLEANUP_KEEP: '30000'       # newest 30k rows stay in Supabase for live RAG
         run: python phase4/sync_to_hf.py
