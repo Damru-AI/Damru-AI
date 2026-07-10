@@ -1,0 +1,35 @@
+name: Damru Storage Guardian v1
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '15,45 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: damru-storage-guardian
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -q requests datasets pyarrow huggingface_hub
+      - name: Check threshold and archive safely
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REPO: Damaru-ai/damru-knowledge
+          ARCHIVE_THRESHOLD_MB: '400'
+          ARCHIVE_ENABLED: ${{ vars.ARCHIVE_ENABLED }}
+          LOCK_MINUTES: '30'
+        run: python phase9/storage_guardian.py
