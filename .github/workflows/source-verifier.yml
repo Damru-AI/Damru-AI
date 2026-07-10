@@ -1,0 +1,41 @@
+name: Damru Source Verifier v1
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '5 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: damru-source-verifier
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -q requests
+      - name: Verify quarantined live signals
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          OBS_TABLE: damru_observations
+          VERIFY_ENABLED: ${{ vars.VERIFY_ENABLED }}
+          VERIFY_LIMIT: '2000'
+          SIMILARITY_THRESHOLD: '0.42'
+          CORROBORATION_HOURS: '96'
+        run: python phase9/source_verifier.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: damru-source-verifier-report
+          path: source_verifier_report.json
+          retention-days: 7
