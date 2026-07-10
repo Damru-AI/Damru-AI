@@ -1,0 +1,53 @@
+name: Damru Controlled Learning Pilot v1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: damru-controlled-learning
+  cancel-in-progress: false
+
+jobs:
+  learn:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -q -r phase5/requirements.txt
+      - name: Run bounded high-quality learning pilot
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_KEY }}
+          OPENROUTER_KEY: ${{ secrets.OPENROUTER_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_KEY }}
+          GEMINI_KEY: ${{ secrets.GEMINI_KEY }}
+          STACKEXCHANGE_KEY: ${{ secrets.STACKEXCHANGE_KEY }}
+          DAMRU_TABLE: damru_knowledge
+          GENERAL_WORKERS: '2'
+          ANALYSIS_WORKERS: '1'
+          MATH_WORKERS: '1'
+          CODING_WORKERS: '4'
+          HINDI_WORKERS: '1'
+          EXAM_WORKERS: '1'
+          SHARD_ID: '0'
+          SHARD_TOTAL: '1'
+          MAX_RUNTIME_MIN: '30'
+          DAILY_TARGET: '10000'
+          FOCUS_RATIO: '0.30'
+          START_QUALITY: '0.70'
+          MAX_QUALITY: '0.90'
+          QUALITY_RISE_PER_10K: '0.01'
+          ROTATE_EVERY: '100'
+          ANSWER_MIN_LINES: '20'
+          ANSWER_MAX_LINES: '60'
+          ANSWER_MAX_TOKENS: '2048'
+        run: python phase5/run_engine.py
