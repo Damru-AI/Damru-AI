@@ -1,0 +1,46 @@
+name: Damru World Observer v1
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/30 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: damru-world-observer
+  cancel-in-progress: true
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -q requests
+      - name: Run public live-world observers
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          YOUTUBE_KEY: ${{ secrets.YOUTUBE_KEY }}
+          OBS_TABLE: damru_observations
+          MAX_PER_SOURCE: '20'
+          WORLD_QUERIES: 'artificial intelligence,India science,space mission,climate disaster,public health,cybersecurity'
+          RSS_URLS: ''
+          BLUESKY_QUERIES: ''
+          YOUTUBE_QUERIES: 'ISRO,NASA artificial intelligence,India science news'
+        run: python phase9/world_observer.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: damru-world-observations
+          path: |
+            world_observations.jsonl
+            world_observer_report.json
+          retention-days: 7
+          
