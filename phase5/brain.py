@@ -18,6 +18,19 @@ import urllib.request
 import urllib.error
 
 import config
+import os
+import sys
+from pathlib import Path
+
+_PHASE9 = Path(__file__).resolve().parents[1] / "phase9"
+if str(_PHASE9) not in sys.path:
+    sys.path.insert(0, str(_PHASE9))
+try:
+    from open_brain import OpenBrain
+    _OPEN_BRAIN = OpenBrain()
+except Exception:
+    _OPEN_BRAIN = None
+ENABLE_LEGACY_PROVIDERS = os.environ.get("ENABLE_LEGACY_PROVIDERS", "0") == "1"
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
@@ -28,17 +41,20 @@ _rr = 0
 
 
 def _providers():
-    """Build the (provider, model) rotation list from whatever keys exist."""
+    """Use gpt-oss Open Brain first; stale legacy providers only when explicitly enabled."""
     out = []
-    if config.OPENROUTER_API_KEY:
-        for m in config.LLM_MODELS:
-            out.append(("openrouter", m))
-    if config.GROQ_API_KEY:
-        for m in config.GROQ_MODELS:
-            out.append(("groq", m))
-    if config.GEMINI_API_KEY:
-        for m in config.GEMINI_MODELS:
-            out.append(("gemini", m))
+    if _OPEN_BRAIN is not None and _OPEN_BRAIN.available:
+        out.append(("openbrain", "gpt-oss-router"))
+    if ENABLE_LEGACY_PROVIDERS:
+        if config.OPENROUTER_API_KEY:
+            for m in config.LLM_MODELS:
+                out.append(("openrouter", m))
+        if config.GROQ_API_KEY:
+            for m in config.GROQ_MODELS:
+                out.append(("groq", m))
+        if config.GEMINI_API_KEY:
+            for m in config.GEMINI_MODELS:
+                out.append(("gemini", m))
     return out
 
 
@@ -97,6 +113,11 @@ def _call_gemini(key, model, messages, temperature, max_tokens):
 
 
 def _try_one(provider, model, messages, temperature, max_tokens):
+    if provider == "openbrain":
+        if _OPEN_BRAIN is None:
+            return ""
+        return _OPEN_BRAIN.complete(messages, max_tokens=max_tokens,
+                                    temperature=temperature)["content"]
     if provider == "openrouter":
         return _call_openai_compatible(OPENROUTER_URL, config.OPENROUTER_API_KEY, model,
                                        messages, temperature, max_tokens, referer=True)
