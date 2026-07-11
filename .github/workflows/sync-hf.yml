@@ -1,34 +1,41 @@
-name: Damru Sync to HuggingFace
-
+name: Damru Sync to HuggingFace + Hot Embeddings
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/30 * * * *'   # EVERY HOUR: append Supabase -> HuggingFace
-
+    - cron: '*/30 * * * *'
 permissions:
   contents: read
-
 concurrency:
   group: damru-sync-hf
   cancel-in-progress: false
-
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install deps
-        run: pip install -q datasets huggingface_hub requests
-      - name: Hourly incremental sync
+      - run: pip install -q datasets huggingface_hub requests numpy
+      - name: Incremental Supabase to HF sync
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_REPO: Damaru-ai/damru-knowledge
-          SUPABASE_CLEANUP: 'false'    # auto-delete old Supabase rows (safe: only after HF upload)
-          CLEANUP_KEEP: '30000'       # newest 30k rows stay in Supabase for live RAG
+          SUPABASE_CLEANUP: 'false'
         run: python phase4/sync_to_hf.py
+      - name: Embed bounded new hot rows with BGE-M3
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          EMBED_MODEL: BAAI/bge-m3
+          EMBED_PROVIDER: hf-inference
+          HOT_EMBED_MAX_ROWS: '32'
+          HOT_EMBED_BATCH: '4'
+          HOT_KEEP_ROWS: '10000'
+        run: python phase9/hot_embed_sync.py
+        
