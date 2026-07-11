@@ -1,15 +1,8 @@
-name: Damru Rejection Diagnostics v1
-
+name: Damru Rejection Diagnostics v2 (gpt-oss)
 on:
   workflow_dispatch:
-
 permissions:
   contents: read
-
-concurrency:
-  group: damru-rejection-diagnostics
-  cancel-in-progress: true
-
 jobs:
   diagnose:
     runs-on: ubuntu-latest
@@ -19,28 +12,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install dependencies
-        run: pip install -q -r phase5/requirements.txt
-      - name: Probe providers and specialist rejection stages
+      - run: pip install -q -r phase5/requirements.txt requests
+      - name: Probe gpt-oss and specialists
         env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_KEY }}
-          OPENROUTER_KEY: ${{ secrets.OPENROUTER_KEY }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_KEY }}
-          GEMINI_KEY: ${{ secrets.GEMINI_KEY }}
+          ENABLE_LEGACY_PROVIDERS: '0'
           START_QUALITY: '0.70'
-          MAX_QUALITY: '0.90'
-          QUALITY_RISE_PER_10K: '0.01'
           ANSWER_MIN_LINES: '20'
           ANSWER_MAX_LINES: '60'
           ANSWER_MAX_TOKENS: '2048'
-          DIAG_SUBJECT: Algebra
         run: python phase9/rejection_diagnostics.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: damru-rejection-diagnostics
+          name: damru-rejection-diagnostics-v2
           path: |
             rejection_diagnostics.json
             rejection_diagnostics.md
-          retention-days: 7
+            
