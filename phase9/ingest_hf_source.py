@@ -73,15 +73,18 @@ def main():
 
     api = HfApi(token=HF_TOKEN)
 
-    # --- verify write access early (clear error instead of failing at upload) ---
+    # --- confirm token identity + ensure dest repo exists (real write perms verified at upload) ---
     if not DRY_RUN:
         try:
-            api.auth_check() if hasattr(api, "auth_check") else api.whoami()
+            who = api.whoami()
+            print("HF token user:", who.get("name"), "| orgs:",
+                  [o.get("name") for o in who.get("orgs", [])], flush=True)
+        except Exception as e:
+            raise RuntimeError("HF_TOKEN invalid or missing: %s" % (str(e)[:160]))
+        try:
             api.create_repo(DST_REPO, repo_type="dataset", exist_ok=True)
         except Exception as e:
-            raise RuntimeError(
-                "HF_TOKEN cannot write to %s. Use a WRITE token. Detail: %s"
-                % (DST_REPO, str(e)[:160]))
+            print("create_repo note (continuing):", str(e)[:160], flush=True)
 
     print("Loading dataset:", SRC_DATASET, "config=", SRC_CONFIG, "split=", SRC_SPLIT, flush=True)
     ds = load_dataset(SRC_DATASET, SRC_CONFIG, split=SRC_SPLIT, streaming=True, token=HF_TOKEN)
