@@ -1,199 +1,145 @@
-#!/usr/bin/env python3
-"""Damru Open Brain router.
-
-Primary: Hugging Face OpenAI-compatible router with gpt-oss-120b providers.
-Fallback: direct Groq API. Caller can retain local GGUF as final fallback.
-No fine-tuning or local 120B inference is attempted.
 """
-from __future__ import annotations
+open_brain.py  (v2)  — Damru BIG BRAIN via HF Router (NO Groq needed)
 
-import json
+Why: free CPU can't run a big model fast. Jugad = route Damru's brain to big
+open-weight models on FREE hosted GPUs via Hugging Face Router (OpenAI-compatible),
+using the HF_TOKEN you already have. Add Damru identity + RAG context on top so the
+answer is *Damru*, not a generic model. Multi-provider failover = never down.
+
+Deploy: HF Space (Damaru-ai/Damru) me is file ka content 'open_brain.py' me paste karo
+(website Files editor se — GitHub ki zaroorat nahi). Env set karo:
+  USE_OPEN_BRAIN = 1
+  HF_TOKEN       = <already set>            # write+inference
+  OPEN_BRAIN_MODELS = openai/gpt-oss-120b,meta-llama/Llama-3.3-70B-Instruct,Qwen/Qwen2.5-72B-Instruct,deepseek-ai/DeepSeek-V3
+  (optional) GEMINI_API_KEY = <free AI Studio key>   # extra fallback
+"""
 import os
-import re
-import time
-from typing import Any
 
-import requests
+HF_TOKEN = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
+HF_ROUTER_BASE = os.environ.get("HF_ROUTER_BASE", "https://router.huggingface.co/v1")
+MODELS = [m.strip() for m in os.environ.get(
+    "OPEN_BRAIN_MODELS",
+    "openai/gpt-oss-120b,meta-llama/Llama-3.3-70B-Instruct,Qwen/Qwen2.5-72B-Instruct,deepseek-ai/DeepSeek-V3",
+).split(",") if m.strip()]
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-HF_ROUTER_URL = os.getenv("HF_ROUTER_URL", "https://router.huggingface.co/v1/chat/completions")
-GROQ_URL = os.getenv("GROQ_URL", "https://api.groq.com/openai/v1/chat/completions")
-HF_TOKEN = os.getenv("HF_TOKEN", "")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-HF_MODELS = [x.strip() for x in os.getenv(
-    "OPEN_BRAIN_HF_MODELS",
-    "openai/gpt-oss-120b:groq,openai/gpt-oss-120b:cerebras,openai/gpt-oss-120b:fireworks-ai",
-).split(",") if x.strip()]
-GROQ_MODELS = [x.strip() for x in os.getenv(
-    "OPEN_BRAIN_GROQ_MODELS", "openai/gpt-oss-120b,openai/gpt-oss-20b"
-).split(",") if x.strip()]
-TIMEOUT = int(os.getenv("OPEN_BRAIN_TIMEOUT", "120"))
-
-HIGH_HINTS = (
-    "prove", "derive", "debug", "architecture", "design a system", "research",
-    "analyze", "compare", "algorithm", "complexity", "theorem", "diagnose",
-    "medical", "legal", "security", "step by step", "deep think", "strategy",
+DAMRU_SYSTEM = (
+    "Tum Damru ho — ek self-learning general-purpose Indian AI (coding, reasoning, "
+    "multilingual, memory). Hinglish + Hindi + English dono samajhte aur bolte ho. "
+    "Jawab saaf, sahi, aur zaroorat ho to step-by-step do. Jab tumhe 'Damru memory' "
+    "context diya jaaye to usi se grounded jawab do aur source samjha do; agar context "
+    "me na ho to apni general samajh se do par jhooth mat bolo. Apni identity hamesha "
+    "Damru rakho — kabhi mat kaho ki tum koi aur model/company ke ho."
 )
-LOW_HINTS = ("hello", "hi", "thanks", "thank you", "define", "meaning", "translate")
 
 
-def reasoning_effort(query: str) -> str:
-    q = (query or "").lower().strip()
-    if len(q) > 500 or any(x in q for x in HIGH_HINTS) or "```" in q:
-        return "high"
-    if len(q) < 80 and any(q == x or q.startswith(x + " ") for x in LOW_HINTS):
-        return "low"
-    return "medium"
+def available():
+    return bool(HF_TOKEN) and bool(MODELS)
 
 
-def wants_json(messages: list[dict[str, Any]]) -> bool:
-    text = "\n".join(str(x.get("content") or "") for x in messages).lower()
-    return "reply only as json" in text or "valid json" in text or "json object" in text
+def current_model():
+    return MODELS[0] if MODELS else None
 
 
-def last_query(messages: list[dict[str, Any]]) -> str:
-    for item in reversed(messages):
-        if item.get("role") == "user":
-            return str(item.get("content") or "")
-    return ""
+def _client():
+    from openai import OpenAI
+    return OpenAI(base_url=HF_ROUTER_BASE, api_key=HF_TOKEN)
 
 
-def safe_error(exc: Exception) -> str:
-    text = f"{type(exc).__name__}: {exc}"
-    return re.sub(r"(hf_|gsk_|sk-)[A-Za-z0-9._-]+", "[REDACTED]", text)[:500]
+def build_messages(query, context=None, history=None):
+    msgs = [{"role": "system", "content": DAMRU_SYSTEM}]
+    if context:
+        msgs.append({"role": "system", "content": "Damru memory (context):\n" + str(context)[:6000]})
+    for h in (history or []):
+        if isinstance(h, dict) and h.get("role") and h.get("content"):
+            msgs.append({"role": h["role"], "content": h["content"]})
+    msgs.append({"role": "user", "content": query})
+    return msgs
 
 
-class OpenBrain:
-    def __init__(self):
-        self.session = requests.Session()
-        self.last_meta: dict[str, Any] = {}
+def _extra(model):
+    # reasoning_effort only for gpt-oss family
+    return {"extra_body": {"reasoning_effort": "low"}} if model.startswith("openai/gpt-oss") else {}
 
-    @property
-    def available(self) -> bool:
-        return bool(HF_TOKEN or GROQ_API_KEY)
 
-    def _payload(self, model: str, messages: list[dict[str, Any]], max_tokens: int,
-                 temperature: float, effort: str, structured: bool) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-            "reasoning_effort": effort,
-        }
-        if structured:
-            payload["response_format"] = {"type": "json_object"}
-        return payload
+def generate(query, context=None, history=None, max_tokens=512, temperature=0.4):
+    """Non-streaming: returns answer string, or None if every provider failed."""
+    if not available():
+        return None
+    cli = _client()
+    msgs = build_messages(query, context, history)
+    last = None
+    for model in MODELS:
+        try:
+            resp = cli.chat.completions.create(
+                model=model, messages=msgs, max_tokens=max_tokens,
+                temperature=temperature, **_extra(model))
+            out = resp.choices[0].message.content
+            if out and out.strip():
+                return out
+        except Exception as e:
+            last = e
+            print("[open_brain] model failed:", model, "->", str(e)[:120], flush=True)
+            continue
+    # optional Gemini fallback
+    g = _gemini(query, context)
+    if g:
+        return g
+    print("[open_brain] ALL providers failed:", str(last)[:160], flush=True)
+    return None
 
-    def _post(self, url: str, key: str, payload: dict[str, Any]) -> dict[str, Any]:
-        headers = {"Authorization": "Bearer " + key, "Content-Type": "application/json"}
-        variants = [dict(payload)]
-        # Provider compatibility fallbacks: remove optional controls on HTTP 400.
-        no_reason = dict(payload); no_reason.pop("reasoning_effort", None)
-        variants.append(no_reason)
-        minimal = dict(no_reason); minimal.pop("response_format", None); minimal.pop("temperature", None)
-        variants.append(minimal)
-        last = None
-        for variant in variants:
-            for attempt in range(3):
+
+def stream(query, context=None, history=None, max_tokens=512, temperature=0.4):
+    """Generator yielding text chunks (perceived-instant). Falls back to one-shot."""
+    if not available():
+        return
+    cli = _client()
+    msgs = build_messages(query, context, history)
+    for model in MODELS:
+        try:
+            resp = cli.chat.completions.create(
+                model=model, messages=msgs, max_tokens=max_tokens,
+                temperature=temperature, stream=True, **_extra(model))
+            got = False
+            for chunk in resp:
                 try:
-                    r = self.session.post(url, headers=headers, json=variant, timeout=TIMEOUT)
-                    if r.ok:
-                        return r.json()
-                    last = RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
-                    if r.status_code == 400:
-                        break
-                    if r.status_code in {408, 409, 429, 500, 502, 503, 504}:
-                        time.sleep(min(8, 1.5 * (attempt + 1)))
-                        continue
-                    break
-                except Exception as exc:
-                    last = exc
-                    time.sleep(min(8, 1.5 * (attempt + 1)))
-            if last and "HTTP 400" not in str(last):
-                break
-        raise RuntimeError(safe_error(last or RuntimeError("empty provider response")))
-
-    @staticmethod
-    def _content(data: dict[str, Any]) -> str:
-        choices = data.get("choices") or []
-        if not choices:
-            return ""
-        msg = choices[0].get("message") or {}
-        content = msg.get("content")
-        if isinstance(content, list):
-            content = "".join(str(x.get("text") or "") if isinstance(x, dict) else str(x) for x in content)
-        return str(content or "").strip()
-
-    def complete(self, messages: list[dict[str, Any]], max_tokens: int = 1200,
-                 temperature: float = 0.4, query: str | None = None,
-                 effort: str | None = None) -> dict[str, Any]:
-        query = query if query is not None else last_query(messages)
-        effort = effort or reasoning_effort(query)
-        structured = wants_json(messages)
-        attempts = []
-
-        if HF_TOKEN:
-            for model in HF_MODELS:
-                t0 = time.time()
-                try:
-                    data = self._post(
-                        HF_ROUTER_URL, HF_TOKEN,
-                        self._payload(model, messages, max_tokens, temperature, effort, structured),
-                    )
-                    text = self._content(data)
-                    if text:
-                        meta = {"provider": "hf-router", "model": model, "reasoning_effort": effort,
-                                "latency_sec": round(time.time() - t0, 2)}
-                        self.last_meta = meta
-                        return {"content": text, **meta}
-                    attempts.append({"provider": "hf-router", "model": model, "error": "empty"})
-                except Exception as exc:
-                    attempts.append({"provider": "hf-router", "model": model, "error": safe_error(exc)})
-
-        if GROQ_API_KEY:
-            for model in GROQ_MODELS:
-                t0 = time.time()
-                try:
-                    data = self._post(
-                        GROQ_URL, GROQ_API_KEY,
-                        self._payload(model, messages, max_tokens, temperature, effort, structured),
-                    )
-                    text = self._content(data)
-                    if text:
-                        meta = {"provider": "groq-direct", "model": model, "reasoning_effort": effort,
-                                "latency_sec": round(time.time() - t0, 2)}
-                        self.last_meta = meta
-                        return {"content": text, **meta}
-                    attempts.append({"provider": "groq-direct", "model": model, "error": "empty"})
-                except Exception as exc:
-                    attempts.append({"provider": "groq-direct", "model": model, "error": safe_error(exc)})
-
-        raise RuntimeError("Open Brain exhausted providers: " + json.dumps(attempts)[-1800:])
+                    delta = chunk.choices[0].delta.content
+                except Exception:
+                    delta = None
+                if delta:
+                    got = True
+                    yield delta
+            if got:
+                return
+        except Exception as e:
+            print("[open_brain] stream failed:", model, "->", str(e)[:120], flush=True)
+            continue
+    one = generate(query, context, history, max_tokens, temperature)
+    if one:
+        yield one
 
 
-def self_test() -> None:
-    assert reasoning_effort("hi") == "low"
-    assert reasoning_effort("Design a system architecture and diagnose security issues") == "high"
-    assert reasoning_effort("Explain photosynthesis") == "medium"
-    assert wants_json([{"role": "user", "content": "Reply ONLY as JSON"}])
-    sample = {"choices": [{"message": {"content": "OK"}}]}
-    assert OpenBrain._content(sample) == "OK"
-    print("Open Brain self-test PASS")
+def _gemini(query, context=None):
+    if not GEMINI_API_KEY:
+        return None
+    try:
+        import urllib.request, json as _json
+        url = ("https://generativelanguage.googleapis.com/v1beta/models/"
+               "gemini-1.5-flash:generateContent?key=" + GEMINI_API_KEY)
+        prompt = DAMRU_SYSTEM + "\n\n"
+        if context:
+            prompt += "Damru memory:\n" + str(context)[:6000] + "\n\n"
+        prompt += "User: " + query
+        body = _json.dumps({"contents": [{"parts": [{"text": prompt}]}]}).encode()
+        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            d = _json.loads(r.read().decode())
+        return d["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception as e:
+        print("[open_brain] gemini fallback failed:", str(e)[:120], flush=True)
+        return None
 
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--live-probe", action="store_true")
-    args = parser.parse_args()
-    self_test()
-    if args.live_probe:
-        brain = OpenBrain()
-        if not brain.available:
-            raise SystemExit("No HF_TOKEN/GROQ_API_KEY configured")
-        result = brain.complete(
-            [{"role": "system", "content": "Reply concisely."},
-             {"role": "user", "content": "Return exactly: DAMRU_OPEN_BRAIN_OK"}],
-            max_tokens=40, temperature=0.0, effort="low")
-        print(json.dumps({k: result.get(k) for k in
-              ("content", "provider", "model", "reasoning_effort", "latency_sec")}, indent=2))
+    print("available:", available(), "| model:", current_model())
+    print(generate("Ek line me batao: hypoglycemia kya hai?"))
