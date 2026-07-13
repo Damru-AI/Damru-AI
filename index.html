@@ -546,16 +546,32 @@ let VIS_KEY = localStorage.getItem('damru_vision_key') || '';
 let deepThink = false;
 /* 🐕 Damru trained brain (HF Space backend) */
 const DAMRU_API = 'https://damaru-ai-damru.hf.space';
-async function damruBrain(messages){
-  const user = [...messages].reverse().find(m => m.role === 'user');
-  const res = await fetch(DAMRU_API + '/chat', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ message: user ? user.content : '' })
-  });
-  if(!res.ok) throw new Error('Damru brain ' + res.status);
-  const d = await res.json();
-  return d.answer || '';
+let lastBrain = '';   // 🐕 kis dimaag ne jawab diya (badge ke liye)
+async function damruBrain(messages, timeoutMs){
+  const sys   = messages.find(m => m.role === 'system');
+  const turns = messages.filter(m => m.role==='user' || m.role==='assistant');
+  const last  = [...turns].reverse().find(m => m.role === 'user');
+  const prior = turns.slice(0, Math.max(0, turns.length-1)).slice(-6);
+  // Poora context ek message me — taaki backend ko identity, web, memory, deep-think sab mile
+  let composed = '';
+  if(sys) composed += sys.content + '\n\n';
+  if(prior.length) composed += 'Recent conversation:\n' + prior.map(m=>(m.role==='user'?'User: ':'Damru: ')+m.content).join('\n') + '\n\n';
+  composed += 'User: ' + (last ? last.content : '');
+  const ctrl = new AbortController();
+  const t = setTimeout(()=>ctrl.abort(), timeoutMs||60000);
+  try{
+    const res = await fetch(DAMRU_API + '/chat', {
+      method:'POST', headers:{'Content-Type':'application/json'}, signal: ctrl.signal,
+      body: JSON.stringify({ message: composed, system: sys?sys.content:'', history: prior })
+    });
+    if(!res.ok) throw new Error('Damru brain ' + res.status);
+    const d = await res.json();
+    return d.answer || d.response || d.text || '';
+  } finally { clearTimeout(t); }
 }
+/* Space ko jagaane ke liye warm-up ping (cold-start lag kam) */
+function warmDamru(){ try{ fetch(DAMRU_API + '/health', {cache:'no-store'}).catch(function(){}); }catch(e){} }
+try{ warmDamru(); setInterval(warmDamru, 10*60*1000); }catch(e){}
 const VID_STORE = {};
 
 const SB_URL = 'https://ukhknkkjudxpaxuwizxj.supabase.co';
@@ -687,22 +703,23 @@ async function openrouter(model,messages,maxTokens,temp){
   const d=await res.json(); return d?.choices?.[0]?.message?.content||'';
 }
 async function engine(messages,maxTokens,temp,intent){
-  let lastErr;
+  let lastErr; lastBrain='';
   const routed = MODEL_ROUTES[intent] || FREE_MODELS;
+  // 🐕 STEP 1: Damru ka apna PREMIUM dimaag pehle (120B open_brain + RAG memory)
+  try{ const dm=await damruBrain(messages); if(dm && dm.trim().length>1){ lastBrain='damru'; return dm; } }catch(e){ lastErr=e; }
+  // ⚡ STEP 2: Backups — Damru down/slow ho to app kabhi ruke nahi
   const heavy = (intent==='code'||intent==='math');
   if(heavy && OR_KEY){
     for(const m of routed){
-      try{ const o=await openrouter(m,messages,maxTokens,temp); if(o&&o.trim()) return o; }catch(e){ lastErr=e; }
+      try{ const o=await openrouter(m,messages,maxTokens,temp); if(o&&o.trim()){ lastBrain='backup'; return o; } }catch(e){ lastErr=e; }
     }
   }
-  try{ const p=await pollinations(messages,maxTokens,temp); if(p&&p.trim()) return p; }catch(e){ lastErr=e; }
+  try{ const p=await pollinations(messages,maxTokens,temp); if(p&&p.trim()){ lastBrain='backup'; return p; } }catch(e){ lastErr=e; }
   if(OR_KEY){
     for(const m of routed){
-      try{ const o=await openrouter(m,messages,maxTokens,temp); if(o&&o.trim()) return o; }catch(e){ lastErr=e; }
+      try{ const o=await openrouter(m,messages,maxTokens,temp); if(o&&o.trim()){ lastBrain='backup'; return o; } }catch(e){ lastErr=e; }
     }
   }
-  // 🐕 Damru trained brain final fallback — app kabhi fully dead na ho
-  try{ const dm=await damruBrain(messages); if(dm&&dm.trim()) return dm; }catch(e){ lastErr=e; }
   throw lastErr || new Error('All engines are busy right now. Please try again in a moment.');
 }
 
@@ -913,7 +930,8 @@ async function send(){
       cacheSet(msg,intent,reply);
     }
     tEl.remove();
-    addMsg('ai', '<span class="intent-tag">'+intent+'</span>'+renderMD(reply), reply, msg, intent);
+    const brainTag = lastBrain==='damru' ? '<span class="intent-tag" style="background:linear-gradient(90deg,#e79a7d,#d97757);color:#fff">🧠 Damru Brain</span>' : (lastBrain==='backup' ? '<span class="intent-tag">⚡ backup</span>' : '');
+    addMsg('ai', '<span class="intent-tag">'+intent+'</span>'+brainTag+renderMD(reply), reply, msg, intent);
     history.push({role:'user',content:msg},{role:'assistant',content:reply,q:msg,intent:intent});
     if(history.length>40) history=history.slice(-36);
     saveCur();
