@@ -304,6 +304,25 @@ body.canvas-open .canvas{width:min(46vw,560px)}
   body.canvas-open .canvas{position:fixed;right:0;top:0;bottom:0;z-index:70;width:min(92vw,520px)}
   .cv-empty{padding:20px}
 }
+
+/* ===== Beast v4 �� bold visual layer ===== */
+.wc-hi{background:linear-gradient(92deg,var(--accent),#f0b48f 55%,var(--accent2,#d97757));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.wc-logo{position:relative;display:inline-block;filter:drop-shadow(0 8px 26px rgba(217,119,87,.45));animation:floaty 4s ease-in-out infinite}
+@keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+.wc-logo::after{content:'';position:absolute;inset:-16px;border-radius:50%;background:radial-gradient(circle,rgba(217,119,87,.28),transparent 70%);z-index:-1;animation:pulseGlow 3s ease-in-out infinite}
+@keyframes pulseGlow{0%,100%{opacity:.45;transform:scale(1)}50%{opacity:1;transform:scale(1.12)}}
+.wc-badge{display:inline-flex;align-items:center;gap:7px;margin-top:16px;padding:7px 15px;border-radius:999px;font-size:0.8rem;font-weight:600;color:var(--text);background:linear-gradient(90deg,rgba(217,119,87,.16),rgba(217,119,87,.05));border:1px solid rgba(217,119,87,.35);box-shadow:0 0 18px rgba(217,119,87,.15)}
+.wc-badge .lg{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px rgba(143,209,158,.18);animation:pulse 2.2s infinite}
+.chip{background:linear-gradient(180deg,var(--panel2),var(--panel));border-color:var(--border2)}
+.chip:hover{border-color:var(--accent);box-shadow:0 6px 18px rgba(0,0,0,.22);transform:translateY(-2px)}
+.hd-brain{font-size:0.68rem;font-weight:700;padding:2px 9px;border-radius:999px;margin-left:4px;white-space:nowrap}
+.hd-brain.on{color:#fff;background:linear-gradient(90deg,var(--accent),#d97757);box-shadow:0 0 12px rgba(217,119,87,.4)}
+.hd-brain.raw{color:var(--text);background:var(--panel2);border:1px solid var(--border2)}
+.hd-brain.off{color:var(--muted);background:transparent;border:1px dashed var(--border2)}
+.acts .act{transition:transform .12s,color .12s}
+.acts .act:hover{transform:scale(1.18)}
+.send{box-shadow:0 4px 16px rgba(217,119,87,.35)}
+.send:hover{filter:brightness(1.07)}
 </style>
 </head>
 <body>
@@ -326,7 +345,7 @@ body.canvas-open .canvas{width:min(46vw,560px)}
   <div class="sb-sec">Recent</div>
   <div class="chatlist" id="chatlist"></div>
   <div class="sb-foot">
-    <div class="brain"><span class="dot"></span><span id="hd-sub">Loading brain…</span></div>
+    <div class="brain"><span class="dot"></span><span id="hd-sub">Loading brain…</span><span id="hd-brain" class="hd-brain"></span></div>
     <button class="ico" onclick="openSettings()" title="Settings">⚙</button>
   </div>
 </aside>
@@ -571,7 +590,19 @@ async function damruBrain(messages, timeoutMs){
 }
 /* Space ko jagaane ke liye warm-up ping (cold-start lag kam) */
 function warmDamru(){ try{ fetch(DAMRU_API + '/health', {cache:'no-store'}).catch(function(){}); }catch(e){} }
-try{ warmDamru(); setInterval(warmDamru, 10*60*1000); }catch(e){}
+/* 🧠 Live brain-health badge — dikhata hai 120B open_brain on hai ya raw 3B */
+async function refreshBrain(){
+  try{
+    const r = await fetch(DAMRU_API + '/health', {cache:'no-store'});
+    const h = await r.json();
+    const big = (h && h.open_brain) ? (h.open_brain_model ? String(h.open_brain_model).split('/').pop() : 'Open Brain') : (h && h.backend==='gguf' ? 'Damru 3B (raw)' : ((h&&h.backend)||'brain'));
+    const el = document.getElementById('hd-brain');
+    if(el){ if(h&&h.ok){ el.textContent='\ud83e\udde0 '+big+(h.rag?' \u00b7 RAG':''); el.className='hd-brain '+(h.open_brain?'on':'raw'); } else { el.textContent='offline'; el.className='hd-brain off'; } }
+    const wt = document.getElementById('wc-badge-t');
+    if(wt){ wt.textContent = (h&&h.open_brain) ? ('Powered by '+big+' \u00b7 RAG memory') : (big+' \u00b7 self-learning on'); }
+  }catch(e){ const el=document.getElementById('hd-brain'); if(el){ el.textContent='waking\u2026'; el.className='hd-brain off'; } }
+}
+try{ warmDamru(); refreshBrain(); setInterval(function(){ warmDamru(); refreshBrain(); }, 4*60*1000); }catch(e){}
 const VID_STORE = {};
 
 const SB_URL = 'https://ukhknkkjudxpaxuwizxj.supabase.co';
@@ -782,7 +813,7 @@ function welcomeHTML(){
     + '<div class="chips" id="chips">'+CHIPS+'</div>'
     + '</div>';
 }
-function showWelcome(){ chatEl.innerHTML=welcomeHTML(); }
+function showWelcome(){ chatEl.innerHTML=welcomeHTML(); try{ refreshBrain(); }catch(e){} }
 function hideWelcome(){ const w=document.getElementById('welcome'); if(w) w.remove(); }
 function addMsg(role,html,raw,q,intent){
   const d=document.createElement('div'); d.className='msg '+(role==='user'?'user':'ai');
@@ -791,7 +822,7 @@ function addMsg(role,html,raw,q,intent){
   if(role==='ai'&&raw!==undefined){
     const b=d.querySelector('.bubble');
     const aw=document.createElement('div'); aw.className='acts';
-    aw.innerHTML='<button class="act" title="Copy" onclick="cpAns(this)">⧉</button><button class="act" title="Listen" onclick="speak(this)">🔊</button><button class="act" title="Good answer" onclick="fbUp(this)">👍</button><button class="act" title="Could be better" onclick="fbDown(this)">👎</button>';
+    aw.innerHTML='<button class="act" title="Copy" onclick="cpAns(this)">⧉</button><button class="act" title="Listen" onclick="speak(this)">🔊</button><button class="act" title="Retry / regenerate" onclick="regen(this)">↻</button><button class="act" title="Good answer" onclick="fbUp(this)">👍</button><button class="act" title="Could be better" onclick="fbDown(this)">👎</button>';
     aw.dataset.raw=raw; aw.dataset.q=q||''; aw.dataset.intent=intent||''; b.appendChild(aw);
   }
   scrollDown(); return d;
@@ -807,6 +838,7 @@ function renderMessages(){
 }
 function scrollDown(){ chatEl.scrollTop=chatEl.scrollHeight; }
 function cpAns(btn){ const raw=btn.closest('.acts').dataset.raw; navigator.clipboard.writeText(raw); toast('Copied ✓'); }
+function regen(btn){ if(typeof busy!=='undefined'&&busy){ toast('Ek jawab already ban raha hai\u2026'); return; } const q=(btn.closest('.acts').dataset.q||'').trim(); if(!q){ toast('Retry ke liye sawaal nahi mila'); return; } const i=document.getElementById('inp'); if(i){ i.value=q; toast('\u21bb Dobara soch raha hoon\u2026'); send(); } }
 function speak(btn){ const raw=btn.closest('.acts').dataset.raw.replace(/[#*`>|]/g,''); const u=new SpeechSynthesisUtterance(raw); u.lang=/[\u0900-\u097F]/.test(raw)?'hi-IN':'en-IN'; speechSynthesis.cancel(); speechSynthesis.speak(u); }
 function autoH(t){ t.style.height='auto'; t.style.height=Math.min(t.scrollHeight,140)+'px'; }
 function keyHandler(e){ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); send(); } }
@@ -1321,7 +1353,7 @@ function wipeChats(){if(!confirm('Clear all chats permanently? This cannot be un
 function toggleDeepThink(){deepThink=!deepThink;const b=document.getElementById('dtbtn');if(b)b.classList.toggle('on',deepThink);toast(deepThink?'🧠 Think ON — step-by-step':'Think OFF');}
 
 function newChips(){const c=[['✨ Explain anything','Explain an interesting concept in simple words with a real example'],['💻 Build an app','Build a clean to-do list web app in a single HTML file'],['🔬 Research a topic','Research the latest developments in electric vehicles and summarize with sources'],['🔢 Solve maths','Solve a maths problem step by step and explain each step'],['✍️ Write for me','Write a formal leave application letter'],['🎨 Make an image','Create a cinematic image of a mountain sunrise']];return c.map(function(x){return `<div class='chip' onclick='chip(&quot;${x[1]}&quot;)'>${x[0]}</div>`;}).join('');}
-function welcomeHTML(){return `<div class='welcome' id='welcome'><div class='wc-logo'>${dogSvg(88,'big')}</div><div class='wc-hi'>${greeting()}, I'm Damru</div><div class='wc-sub'>Ask me anything — code, maths, research, writing, GK or exam prep. Send a photo or screenshot and I read it. Talk to me by voice, switch modes, or build apps live in the Canvas. Main aapki bhasha me jawab deta hoon.</div><div class='chips' id='chips'>${newChips()}</div></div>`;}
+function welcomeHTML(){return `<div class='welcome' id='welcome'><div class='wc-logo'>${dogSvg(88,'big')}</div><div class='wc-hi'>${greeting()}, I'm Damru</div><div class='wc-sub'>Ask me anything — code, maths, research, writing, GK or exam prep. Send a photo or screenshot and I read it. Talk to me by voice, switch modes, or build apps live in the Canvas. Main aapki bhasha me jawab deta hoon.</div><div class='wc-badge' id='wc-badge'><span class='lg'></span> <span id='wc-badge-t'>Damru's own brain · verifying…</span></div><div class='chips' id='chips'>${newChips()}</div></div>`;}
 
 /* ===== init ===== */
 (function(){
