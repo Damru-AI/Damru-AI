@@ -6,6 +6,9 @@
 <meta name="theme-color" content="#1f1e1d"/>
 <title>Damru AI — Beast UI v3</title>
 <meta name="description" content="Damru AI — a self-learning general-purpose AI: coding, research, maths, writing, GK & exams. Reads images, speaks your language, learns 24/7. Built by SHIVA AI."/>
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/","three-mesh-bvh":"https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.7.0/build/index.module.js","three-bvh-csg":"https://cdn.jsdelivr.net/npm/three-bvh-csg@0.0.16/build/index.module.js"}}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600;8..60,700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
@@ -716,6 +719,17 @@ function cacheSet(msg,intent,reply){
 /* ============================================================
    ENGINE
    ============================================================ */
+function stripBrandAds(t){
+  if(!t) return t;
+  // Remove Pollinations free-tier promo so Damru's answer never shows an Ad
+  t = t.replace(/\n?\s*-{2,}\s*\n?\s*(?:\*\*)?\s*(?:\uD83C\uDF38\s*)?Ad(?:\s*\uD83C\uDF38)?[\s\S]*?Pollinations[\s\S]*?(?:mission|everyone|APIs?)[.!]?/gi,'');
+  t = t.replace(/\n?[^\n]*Powered by Pollinations[^\n]*/gi,'');
+  t = t.replace(/\n?[^\n]*Support (?:our mission|Pollinations)[^\n]*/gi,'');
+  t = t.replace(/\n?[^\n]*Support Pollinations\.AI[^\n]*/gi,'');
+  t = t.replace(/\n?\s*\uD83C\uDF38\s*Ad\s*\uD83C\uDF38\s*/gi,'\n');
+  t = t.replace(/\n-{2,}\s*$/,'').replace(/\n{3,}/g,'\n\n');
+  return t.trim();
+}
 async function pollinations(messages,maxTokens,temp){
   const res = await fetch('https://text.pollinations.ai/openai', {
     method:'POST', headers:{'Content-Type':'application/json'},
@@ -723,8 +737,8 @@ async function pollinations(messages,maxTokens,temp){
   });
   if(!res.ok){ const t=await res.text(); throw new Error('Pollinations '+res.status+' '+t); }
   const ct=res.headers.get('content-type')||'';
-  if(ct.indexOf('application/json')!==-1){ const d=await res.json(); return d?.choices?.[0]?.message?.content||''; }
-  return await res.text();
+  if(ct.indexOf('application/json')!==-1){ const d=await res.json(); return stripBrandAds(d?.choices?.[0]?.message?.content||''); }
+  return stripBrandAds(await res.text());
 }
 async function openrouter(model,messages,maxTokens,temp){
   const h={'Content-Type':'application/json'};
@@ -737,7 +751,7 @@ async function engine(messages,maxTokens,temp,intent){
   let lastErr; lastBrain='';
   const routed = MODEL_ROUTES[intent] || FREE_MODELS;
   // 🐕 STEP 1: Damru ka apna PREMIUM dimaag pehle (120B open_brain + RAG memory)
-  try{ const dm=await damruBrain(messages); if(dm && dm.trim().length>1){ lastBrain='damru'; return dm; } }catch(e){ lastErr=e; }
+  try{ const dmTO=(intent==='code'||intent==='math')?90000:60000; const dm=await damruBrain(messages,dmTO); if(dm && dm.trim().length>1){ lastBrain='damru'; return stripBrandAds(dm); } }catch(e){ lastErr=e; }
   // ⚡ STEP 2: Backups — Damru down/slow ho to app kabhi ruke nahi
   const heavy = (intent==='code'||intent==='math');
   if(heavy && OR_KEY){
@@ -1369,4 +1383,13 @@ function welcomeHTML(){return `<div class='welcome' id='welcome'><div class='wc-
  if(!localStorage.getItem('damru_onboarded'))setTimeout(function(){try{startIntro(false);}catch(e){}},400);
 })();
 </script>
+<script>
+window.__damruLLM = async function(messages, maxTokens){
+  var mt = maxTokens || 6000;
+  try { if (typeof engine === "function") return await engine(messages, mt, 0.35, "code"); } catch(e){ console.warn("visualise engine fail", e); }
+  try { if (typeof pollinations === "function") return await pollinations(messages, mt, 0.35); } catch(e){}
+  throw new Error("No LLM available");
+};
+</script>
+<script src="damru_visualise.js"></script>
 </body></html>
