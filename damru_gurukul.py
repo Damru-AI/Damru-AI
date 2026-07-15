@@ -8,27 +8,16 @@ them at answer time and without hitting API limits.
 
 ETHIC (matches Damru's rule -- 'apne mind se jawab'):
   * Teachers are used ONLY OFFLINE to generate training data.
-  * Damru NEVER calls a teacher to answer a live user. Live answers come from
-    Damru's own brain + RAG + its own web research (see app.py / damru_reason.py).
-  * Once a reasoning trace is distilled into RAG memory (today) + own weights
-    (Brain Forge, later), the teacher is DROPPED. Damru stands alone.
+  * Damru NEVER calls a teacher to answer a live user.
+  * Once distilled into RAG (today) + weights (Brain Forge, later), teacher dropped.
 
-PIPELINE (one coherent flywheel):
-  1. curriculum()    -> questions across every skill domain.
-  2. ask_teachers()  -> rotating panel of free teachers; capture step-by-step
-                        REASONING TRACE (R1-style), not just the final answer.
-  3. consensus()     -> cross-check teachers; multi-teacher AGREEMENT is a free
-                        quality filter that kills hallucination. Only high-
-                        agreement traces graduate.
-  4. to_row()        -> canonical corpus rows (+reasoning) for Supabase + HF.
-  5. Payoff: RAG serves them TODAY (learn w/o GPU); Brain Forge trains on them
-     when GPU returns (permanent own-mind knowledge).
+CONSENSUS (v2 -- fixed): exact-vote for NUMERIC/short answers (strict anti-
+hallucination); OVERLAP-similarity clustering for OPEN-ENDED prose (so good
+teaching traces are kept even when wording differs). min_agreement strictly
+gates numeric answers; prose is accepted when a substantive trace exists, with a
+soft overlap score stored in the `agreement` column for later filtering.
 
-JUGAD for API/limits: TeacherPool = round-robin + per-provider cooldown +
-  on-disk dedupe. Free/keyless tiers only, no single provider hammered.
-
-All model/network calls are INJECTED -> pure logic, testable with mocks,
-no keys/GPU needed.
+All model/network calls are INJECTED -> pure logic, testable with mocks.
 """
 import hashlib
 import re
@@ -36,7 +25,6 @@ import time
 from collections import Counter, defaultdict
 
 # ---------------- curriculum: every skill Damru must master ----------------
-# domain -> (intent tag, seed subtopics)
 DOMAINS = {
     "coding":            ("code",      ["data structures", "async bugs", "system design", "regex", "API design"]),
     "maths":             ("math",      ["algebra", "calculus", "probability", "number theory", "linear algebra"]),
@@ -63,8 +51,6 @@ _Q_TEMPLATES = [
 
 
 def curriculum(n_per_domain=3, domains=None, gen_fn=None):
-    """Produce curriculum questions. If gen_fn (an LLM) is given, expand seeds
-    into richer questions; otherwise use templates (fully offline)."""
     out = []
     doms = domains or list(DOMAINS.keys())
     for d in doms:
@@ -85,14 +71,10 @@ def curriculum(n_per_domain=3, domains=None, gen_fn=None):
 
 # ---------------- teacher pool: round-robin + cooldown (API-limit jugad) ----
 class TeacherPool:
-    """Rotates across free teacher endpoints; skips any on cooldown after error/
-    rate-limit. Each teacher_fn(messages)->str is injected; names for logging."""
-
     def __init__(self, teachers, cooldown_s=30):
-        # teachers: list of (name, fn)
         self.teachers = list(teachers)
         self.cooldown_s = cooldown_s
-        self._until = defaultdict(float)   # name -> epoch until which it's paused
+        self._until = defaultdict(float)
         self._rr = 0
 
     def _available(self):
@@ -103,42 +85,36 @@ class TeacherPool:
         self._until[name] = time.time() + self.cooldown_s
 
     def ask_all(self, messages, max_teachers=None):
-        """Ask each available teacher once (round-robin start). Returns list of
-        {teacher, answer}. Teachers that error are penalized (cooldown)."""
-        avail = self._available()
-        if not avail:
-            avail = self.teachers  # cooldown over-ride if all paused
-        # rotate starting point so load spreads
+        avail = self._available() or self.teachers
         if avail:
             self._rr = (self._rr + 1) % len(avail)
             avail = avail[self._rr:] + avail[:self._rr]
         if max_teachers:
             avail = avail[:max_teachers]
-        res = []
+        res, errors = [], 0
         for name, fn in avail:
             try:
                 ans = fn(messages)
                 if ans and ans.strip():
                     res.append({"teacher": name, "answer": ans.strip()})
+                else:
+                    errors += 1
             except Exception:
+                errors += 1
                 self.penalize(name)
+        self.last_errors = errors
         return res
 
 
-# reasoning-eliciting prompt (R1 / CoT distillation)
 _TRACE_SYS = (
     "You are an expert teacher. Think step by step and SHOW your reasoning, "
     "then end with a line 'FINAL: <concise answer>'. Be correct and complete.")
 
 
 def _split_trace(text):
-    """Split a teacher output into (reasoning, final)."""
     m = re.search(r"FINAL\s*:\s*(.+)\s*$", text, re.I | re.S)
     if m:
-        final = m.group(1).strip()
-        reasoning = text[:m.start()].strip()
-        return reasoning, final
-    # fallback: last non-empty line is the answer
+        return text[:m.start()].strip(), m.group(1).strip()
     lines = [l for l in text.splitlines() if l.strip()]
     return ("\n".join(lines[:-1]).strip() if len(lines) > 1 else ""), (lines[-1].strip() if lines else text.strip())
 
@@ -149,112 +125,135 @@ def _norm(s):
     return nums[-1] if nums else s[:80]
 
 
-# ---------------- consensus: multi-teacher agreement = quality filter --------
-def consensus(teacher_answers):
-    """Group teachers by normalized FINAL answer. Returns dict with the winning
-    trace, agreement ratio, and which teachers agreed. Kills lone hallucinations."""
+_SHORT_RE = re.compile(r"^[\s\d.,:/*+\-()x=%]+$", re.I)
+
+
+def _words(s):
+    return set(re.findall(r"[a-z0-9]+", (s or "").lower()))
+
+
+def _jaccard(a, b):
+    return len(a & b) / len(a | b) if (a and b) else 0.0
+
+
+# ---------------- consensus v2: numeric=exact, prose=overlap ----------------
+def consensus(teacher_answers, min_similarity=0.4):
     parsed = []
     for t in teacher_answers:
         reasoning, final = _split_trace(t["answer"])
-        parsed.append({"teacher": t["teacher"], "reasoning": reasoning,
-                       "final": final, "key": _norm(final)})
+        parsed.append({"teacher": t["teacher"], "reasoning": reasoning, "final": final})
     if not parsed:
-        return {"ok": False, "agreement": 0.0, "n": 0}
-    keys = [p["key"] for p in parsed]
-    win_key, votes = Counter(keys).most_common(1)[0]
-    agree = votes / len(parsed)
-    winners = [p for p in parsed if p["key"] == win_key]
-    # pick the richest reasoning trace among agreeing teachers
-    best = max(winners, key=lambda p: len(p["reasoning"]))
+        return {"ok": False, "agreement": 0.0, "n": 0, "kind": "none"}
+    n = len(parsed)
+    finals = [p["final"] for p in parsed]
+    is_short = sum(1 for f in finals if _SHORT_RE.match(f or "") or len(f.split()) <= 2) >= (n + 1) // 2
+
+    if is_short:  # numeric / very-short -> strict exact voting
+        keys = [_norm(f) for f in finals]
+        win, votes = Counter(keys).most_common(1)[0]
+        winners = [p for p, k in zip(parsed, keys) if k == win]
+        kind, agree = "exact", votes / n
+    else:         # prose -> overlap clustering (wording-tolerant)
+        ws = [_words(f) for f in finals]
+        best = []
+        for i in range(n):
+            cl = [j for j in range(n) if _jaccard(ws[i], ws[j]) >= min_similarity]
+            if len(cl) > len(best):
+                best = cl
+        winners = [parsed[j] for j in best] if best else parsed
+        kind, agree = "overlap", (len(best) / n if best else 1.0 / n)
+
+    top = max(winners, key=lambda p: len(p["reasoning"] or ""))
+    return {"ok": True, "final": top["final"], "reasoning": top["reasoning"],
+            "agreement": round(agree, 2), "n": n, "kind": kind,
+            "agreed_by": [p["teacher"] for p in winners]}
+
+
+def to_row(question, con, intent, lang="en"):
     return {
-        "ok": True,
-        "final": best["final"],
-        "reasoning": best["reasoning"],
-        "agreement": round(agree, 2),
-        "n": len(parsed),
-        "agreed_by": [p["teacher"] for p in winners],
-        "dissent": [p["teacher"] for p in parsed if p["key"] != win_key],
+        "question": question,
+        "answer": con["final"],
+        "reasoning": con["reasoning"],
+        "intent": intent,
+        "lang": lang,
+        "upvotes": max(1, int(round(con["agreement"] * len(con.get("agreed_by", []))))),
+        "agreement": con["agreement"],
+        "kind": con["kind"],
+        "teachers": ",".join(con.get("agreed_by", [])),
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 
 
-# ---------------- distill one question ----------------
 def distill(question, intent, pool, min_agreement=0.6, lang="en"):
-    """Ask the teacher panel, run consensus, return a corpus row or None."""
     msgs = [{"role": "system", "content": _TRACE_SYS},
             {"role": "user", "content": question}]
     answers = pool.ask_all(msgs)
     if not answers:
         return None, {"reason": "no_teacher"}
     con = consensus(answers)
-    if not con["ok"] or con["agreement"] < min_agreement:
-        return None, {"reason": "low_agreement", "agreement": con.get("agreement", 0)}
-    row = to_row(question, con, intent, lang)
-    return row, {"reason": "ok", "agreement": con["agreement"], "teachers": con["agreed_by"]}
+    if not con["ok"]:
+        return None, {"reason": "no_teacher"}
+    substantive = len((con["reasoning"] or "") + con["final"]) >= 40
+    # numeric/short -> must meet min_agreement; prose -> accept if substantive
+    if con["kind"] == "exact":
+        if con["agreement"] < min_agreement:
+            return None, {"reason": "low_agreement", "agreement": con["agreement"], "kind": "exact"}
+    else:
+        if not substantive:
+            return None, {"reason": "thin_answer", "agreement": con["agreement"], "kind": "overlap"}
+    return to_row(question, con, intent, lang), {
+        "reason": "ok", "agreement": con["agreement"], "kind": con["kind"],
+        "teachers": con["agreed_by"]}
 
 
-def to_row(question, con, intent, lang="en"):
-    """Canonical corpus row (+reasoning distillation columns).
-    Base schema matches damru-knowledge; extra cols go to reasoning-traces set."""
-    return {
-        "question": question,
-        "answer": con["final"],
-        "reasoning": con["reasoning"],      # <- the distilled 'thinking'
-        "intent": intent,
-        "lang": lang,
-        "upvotes": int(round(con["agreement"] * len(con.get("agreed_by", [])))),
-        "agreement": con["agreement"],
-        "teachers": ",".join(con.get("agreed_by", [])),
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    }
-
-
-# ---------------- batch harvest with dedupe ----------------
 def harvest(items, pool, min_agreement=0.6, seen=None):
-    """items: list of {question,intent}. seen: set of question hashes (dedupe).
-    Returns {rows, kept, dropped, seen}."""
     seen = seen if seen is not None else set()
     rows, dropped = [], 0
+    reasons, debug = Counter(), []
     for it in items:
         h = hashlib.sha1(it["question"].strip().lower().encode()).hexdigest()
         if h in seen:
             dropped += 1
+            reasons["dupe"] += 1
             continue
         seen.add(h)
         row, meta = distill(it["question"], it.get("intent", "reason"), pool, min_agreement)
+        reasons[meta["reason"]] += 1
         if row:
             rows.append(row)
         else:
             dropped += 1
-    return {"rows": rows, "kept": len(rows), "dropped": dropped, "seen": seen}
+            if len(debug) < 3:
+                debug.append({"q": it["question"][:60], "meta": meta})
+    return {"rows": rows, "kept": len(rows), "dropped": dropped,
+            "seen": seen, "reasons": dict(reasons), "debug": debug}
 
 
 if __name__ == "__main__":
-    # ---- offline self-test: 3 mock teachers, no keys / no GPU ----
-    def t_good(msgs):
-        q = msgs[-1]["content"]
-        return f"Step 1: analyze '{q[:30]}'. Step 2: apply principle. FINAL: 42"
-    def t_good2(msgs):
-        return "Reasoning: think... verify... FINAL: 42"
-    def t_halluc(msgs):
-        return "Some rambling. FINAL: 999"          # lone dissenter -> filtered
-    def t_flaky(msgs):
-        raise RuntimeError("rate limited")            # triggers cooldown
+    def t_num1(m):
+        return "12*8: 12*8=96. FINAL: 96"
+    def t_num2(m):
+        return "Compute: 96. FINAL: 96"
+    def t_num_bad(m):
+        return "FINAL: 99"
+    def t_prose1(m):
+        return "Data structures organize data; arrays, stacks, queues, trees. FINAL: they organize data efficiently for fast access"
+    def t_prose2(m):
+        return "They structure data: arrays lists stacks trees for efficiency. FINAL: organize data for efficient access and operations"
 
-    pool = TeacherPool([("claude", t_good), ("gpt", t_good2),
-                        ("gemini", t_halluc), ("glm", t_flaky)])
+    print("--- numeric (strict) ---")
+    p = TeacherPool([("a", t_num1), ("b", t_num2), ("c", t_num_bad)])
+    r, m = distill("What is 12*8?", "math", p, 0.6)
+    print("kept:", bool(r), "| meta:", m)
 
-    curr = curriculum(n_per_domain=2)
-    print(f"curriculum questions: {len(curr)} across {len(DOMAINS)} domains")
-    print("sample:", curr[0]["question"], "|", curr[0]["domain"])
+    print("--- prose (overlap) ---")
+    p2 = TeacherPool([("a", t_prose1), ("b", t_prose2)])
+    r2, m2 = distill("Explain data structures.", "code", p2, 0.6)
+    print("kept:", bool(r2), "| meta:", m2)
+    if r2:
+        print("    answer:", r2["answer"][:60], "| kind:", r2["kind"], "| agree:", r2["agreement"])
 
-    res = harvest(curr[:5], pool, min_agreement=0.6)
-    print(f"\nharvest -> kept={res['kept']} dropped={res['dropped']}")
-    if res["rows"]:
-        r = res["rows"][0]
-        print("row keys:", list(r.keys()))
-        print("answer:", r["answer"], "| agreement:", r["agreement"],
-              "| teachers:", r["teachers"], "| upvotes:", r["upvotes"])
-        print("reasoning captured:", bool(r["reasoning"]))
-    # dedupe check
-    res2 = harvest(curr[:5], pool, seen=res["seen"])
-    print(f"re-run same items -> kept={res2['kept']} dropped={res2['dropped']} (dedupe works)")
+    print("--- full harvest (13 domains x1) ---")
+    p3 = TeacherPool([("a", t_prose1), ("b", t_prose2)])
+    res = harvest(curriculum(1), p3, 0.6)
+    print("kept:", res["kept"], "dropped:", res["dropped"], "reasons:", res["reasons"])
