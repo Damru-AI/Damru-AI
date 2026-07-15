@@ -11,7 +11,7 @@ on:
         description: 'generic | research (research = PDF mind-map topics)'
         default: 'research'
       angles:
-        description: 'Research angles per topic (1-6, 6 = max A-to-Z detail)'
+        description: 'Research angles per topic (1-6). Keep 3 for nightly.'
         default: '3'
       per_domain:
         description: 'Questions per domain (generic curriculum only)'
@@ -27,7 +27,7 @@ concurrency:
 jobs:
   harvest:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -43,6 +43,7 @@ jobs:
           ANGLES: ${{ github.event.inputs.angles || '3' }}
           PER_DOMAIN: ${{ github.event.inputs.per_domain || '2' }}
           MIN_AGREEMENT: ${{ github.event.inputs.min_agreement || '0.6' }}
+          HARVEST_BUDGET_MIN: '95'
+          BATCH_SIZE: '15'
           TRACES_REPO: Damaru-ai/damru-reasoning-traces
         run: python phase10/reasoning_harvest.py
-        
