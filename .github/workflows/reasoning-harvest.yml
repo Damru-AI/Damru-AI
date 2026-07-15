@@ -1,18 +1,23 @@
 name: Reasoning Harvest (Gurukul)
 
-# Nightly multi-teacher distillation flywheel.
-# ETHIC: OFFLINE ONLY. Teachers generate training data; Damru never calls them live.
+# Multi-teacher distillation flywheel. ETHIC: OFFLINE ONLY.
 
 on:
   schedule:
     - cron: '0 19 * * *'        # 00:30 IST nightly (19:00 UTC)
   workflow_dispatch:
     inputs:
+      curriculum:
+        description: 'generic | research (research = PDF mind-map topics)'
+        default: 'research'
+      angles:
+        description: 'Research angles per topic (1-6, 6 = max A-to-Z detail)'
+        default: '3'
       per_domain:
-        description: 'Questions per domain'
+        description: 'Questions per domain (generic curriculum only)'
         default: '2'
       min_agreement:
-        description: 'Min teacher agreement (0-1)'
+        description: 'Min teacher agreement for numeric answers (0-1)'
         default: '0.6'
 
 concurrency:
@@ -22,7 +27,7 @@ concurrency:
 jobs:
   harvest:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -34,6 +39,8 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           OPENROUTER_KEY: ${{ secrets.OPENROUTER_KEY }}
+          CURRICULUM: ${{ github.event.inputs.curriculum || 'research' }}
+          ANGLES: ${{ github.event.inputs.angles || '3' }}
           PER_DOMAIN: ${{ github.event.inputs.per_domain || '2' }}
           MIN_AGREEMENT: ${{ github.event.inputs.min_agreement || '0.6' }}
           TRACES_REPO: Damaru-ai/damru-reasoning-traces
