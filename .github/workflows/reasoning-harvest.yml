@@ -1,0 +1,40 @@
+name: Reasoning Harvest (Gurukul)
+
+# Nightly multi-teacher distillation flywheel.
+# ETHIC: OFFLINE ONLY. Teachers generate training data; Damru never calls them live.
+
+on:
+  schedule:
+    - cron: '0 19 * * *'        # 00:30 IST nightly (19:00 UTC)
+  workflow_dispatch:
+    inputs:
+      per_domain:
+        description: 'Questions per domain'
+        default: '2'
+      min_agreement:
+        description: 'Min teacher agreement (0-1)'
+        default: '0.6'
+
+concurrency:
+  group: reasoning-harvest
+  cancel-in-progress: false
+
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install --quiet requests datasets huggingface_hub
+      - name: Run Gurukul harvest
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          OPENROUTER_KEY: ${{ secrets.OPENROUTER_KEY }}
+          PER_DOMAIN: ${{ github.event.inputs.per_domain || '2' }}
+          MIN_AGREEMENT: ${{ github.event.inputs.min_agreement || '0.6' }}
+          TRACES_REPO: Damaru-ai/damru-reasoning-traces
+        run: python phase10/reasoning_harvest.py
