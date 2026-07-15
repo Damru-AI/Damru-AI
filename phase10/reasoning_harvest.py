@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """
-Nightly GURUKUL harvest runner (GitHub Action)  --  v3.
+Nightly GURUKUL harvest runner (GitHub Action)  --  v4 (crash-safe / time-boxed).
 Wires FREE teacher endpoints -> damru_gurukul -> pushes reasoning traces to HF.
 
 ETHIC: OFFLINE ONLY. Teachers generate training data; Damru never calls them live.
 
-v3 fixes: browser User-Agent (CDN 403 fix), detailed per-teacher error probe,
-Pollinations GET fallback, tolerant response parsing, OpenRouter referer headers,
-and CURRICULUM=research switch to harvest the PDF mind-map topics (A-to-Z).
+v4 fixes (why run #5 was CANCELED at 90 min):
+  - TIME BUDGET: stop harvesting at HARVEST_BUDGET_MIN and push what we have.
+  - INCREMENTAL PUSH: push after every BATCH_SIZE so a timeout never loses data.
+  - Shorter per-call HTTP timeout (was 90s -> 30s) so one slow teacher can't stall.
+  - ANGLES default lowered to 3 (420 -> 210 questions per run).
+Also keeps v3: browser UA (CDN 403 fix), per-teacher error probe, Pollinations
+GET fallback, tolerant parsing, OpenRouter referer, CURRICULUM=research switch.
 
 Env:
   HF_TOKEN        (required to push)   HF WRITE token
@@ -17,6 +21,8 @@ Env:
   PER_DOMAIN      (default 2)          generic curriculum only
   ANGLES          (default 3, max 6)   research curriculum depth per topic
   MIN_AGREEMENT   (default 0.6)
+  HARVEST_BUDGET_MIN (default 70)      hard time budget before graceful stop
+  BATCH_SIZE      (default 15)         push cadence (crash-safe)
   DRY_RUN         (=1)                 mock teachers, no network, no push
 """
 import os
@@ -27,6 +33,7 @@ import traceback
 import urllib.request
 import urllib.parse
 import urllib.error
+from collections import Counter
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _ROOT)
@@ -36,9 +43,10 @@ POLL_URL = "https://text.pollinations.ai/openai"
 POLL_GET = "https://text.pollinations.ai/"
 OR_URL = "https://openrouter.ai/api/v1/chat/completions"
 UA = "Mozilla/5.0 (compatible; DamruGurukul/1.0; +https://github.com/Damru-AI)"
+HTTP_TIMEOUT = int(os.environ.get("HTTP_TIMEOUT", "30"))
 
 
-def _post(url, payload, headers, timeout=90):
+def _post(url, payload, headers, timeout=HTTP_TIMEOUT):
     hdr = {"Content-Type": "application/json", "Accept": "application/json",
            "User-Agent": UA}
     hdr.update(headers or {})
@@ -52,22 +60,32 @@ def _post(url, payload, headers, timeout=90):
         raise RuntimeError(f"HTTP {e.code}: {body}")
 
 
-def _get(url, timeout=90):
+def _get(url, timeout=HTTP_TIMEOUT):
     req = urllib.request.Request(url, headers={"User-Agent": UA}, method="GET")
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read().decode(errors="ignore")
 
 
+def _strip_ads(t):
+    """Remove Pollinations free-tier promo so it never pollutes training data."""
+    if not t:
+        return t
+    import re
+    t = re.sub(r"\n?[^\n]*Powered by Pollinations[^\n]*", "", t, flags=re.I)
+    t = re.sub(r"\n?[^\n]*Support (?:our mission|Pollinations)[^\n]*", "", t, flags=re.I)
+    t = re.sub(r"\n?\s*\U0001F338?\s*Ad\s*\U0001F338?\s*", "\n", t)
+    return t.strip()
+
+
 def _extract(out):
-    """Tolerant parse across provider response shapes."""
     if isinstance(out, str):
-        return out
+        return _strip_ads(out)
     if "choices" in out and out["choices"]:
         ch = out["choices"][0]
-        return (ch.get("message", {}) or {}).get("content") or ch.get("text", "")
+        return _strip_ads((ch.get("message", {}) or {}).get("content") or ch.get("text", ""))
     for k in ("content", "text", "response", "output"):
         if out.get(k):
-            return out[k]
+            return _strip_ads(out[k])
     return ""
 
 
@@ -83,10 +101,9 @@ def make_pollinations_teacher(model):
                 return txt
             raise RuntimeError("empty POST body")
         except Exception:
-            # GET fallback (classic keyless pollinations text API)
             prompt = "\n\n".join(m["content"] for m in messages)
             url = POLL_GET + urllib.parse.quote(prompt[:1500]) + "?model=" + model
-            return _get(url)
+            return _strip_ads(_get(url))
     return fn
 
 
@@ -118,7 +135,6 @@ def build_pool():
 
 
 def probe(pool):
-    """Diagnostic: call EACH teacher directly, print exact result/error."""
     print("[gurukul] --- teacher probe (per-teacher) ---")
     msgs = [{"role": "system", "content": "You are a teacher. End with 'FINAL: <answer>'."},
             {"role": "user", "content": "What is 12*8? Explain briefly."}]
@@ -151,14 +167,18 @@ def get_items(dry):
     return items
 
 
-def push_to_hf(rows, repo, token):
-    from datasets import Dataset, concatenate_datasets, load_dataset
-    new_ds = Dataset.from_list(rows)
+def load_old(repo, token):
     try:
-        old = load_dataset(repo, split="train", token=token)
-        merged = concatenate_datasets([old, new_ds])
+        from datasets import load_dataset
+        return load_dataset(repo, split="train", token=token)
     except Exception:
-        merged = new_ds
+        return None
+
+
+def push_to_hf(new_rows, repo, token, old_ds):
+    from datasets import Dataset, concatenate_datasets
+    ds = Dataset.from_list(new_rows)
+    merged = concatenate_datasets([old_ds, ds]) if old_ds is not None else ds
     merged.push_to_hub(repo, token=token, private=True)
     return len(merged)
 
@@ -166,6 +186,8 @@ def push_to_hf(rows, repo, token):
 def main():
     min_agree = float(os.environ.get("MIN_AGREEMENT", "0.6"))
     repo = os.environ.get("TRACES_REPO", "Damaru-ai/damru-reasoning-traces")
+    budget = float(os.environ.get("HARVEST_BUDGET_MIN", "70"))
+    batch_size = int(os.environ.get("BATCH_SIZE", "15"))
     dry = os.environ.get("DRY_RUN") == "1"
 
     if dry:
@@ -181,24 +203,51 @@ def main():
             sys.exit(1)
 
     items = get_items(dry)
-    print(f"[gurukul] harvesting {len(items)} questions; min_agreement={min_agree}; dry={dry}")
-    res = harvest(items, pool, min_agreement=min_agree)
-    print(f"[gurukul] kept={res['kept']} dropped={res['dropped']} reasons={res['reasons']}")
-    if res["kept"] == 0 and res.get("debug"):
-        print("[gurukul] sample drops:", json.dumps(res["debug"], indent=2)[:600])
-
-    if dry:
-        print(json.dumps(res["rows"][:1], indent=2)[:700])
-        return
-    if not res["rows"]:
-        print("[gurukul] nothing passed consensus")
-        return
     token = os.environ.get("HF_TOKEN")
-    if not token:
+    if not dry and not token:
         print("[gurukul] ERROR: HF_TOKEN missing, cannot push")
         sys.exit(1)
-    total = push_to_hf(res["rows"], repo, token)
-    print(f"[gurukul] pushed {res['kept']} new rows -> {repo} (total {total})")
+
+    old_ds = None if dry else load_old(repo, token)
+    if old_ds is not None:
+        print(f"[gurukul] existing dataset rows: {len(old_ds)}")
+
+    # ---- crash-safe batched harvest with time budget ----
+    start = time.time()
+    seen, all_rows = set(), []
+    reasons = Counter()
+    pushed = 0
+    stopped_early = False
+    for i in range(0, len(items), batch_size):
+        if (time.time() - start) / 60.0 >= budget:
+            print(f"[gurukul] TIME BUDGET {budget}min reached at item {i}; graceful stop")
+            stopped_early = True
+            break
+        batch = items[i:i + batch_size]
+        res = harvest(batch, pool, min_agreement=min_agree, seen=seen)
+        seen = res["seen"]
+        for k, v in res["reasons"].items():
+            reasons[k] += v
+        if res["rows"]:
+            all_rows.extend(res["rows"])
+        done = min(i + batch_size, len(items))
+        print(f"[gurukul] batch {done}/{len(items)} | kept_total={len(all_rows)} "
+              f"| {(time.time()-start)/60:.1f}min | reasons={dict(reasons)}")
+        # incremental push so a later timeout never loses this batch
+        if not dry and all_rows:
+            try:
+                total = push_to_hf(all_rows, repo, token, old_ds)
+                pushed = len(all_rows)
+                print(f"[gurukul]   pushed {pushed} new rows -> {repo} (total {total})")
+            except Exception as e:
+                print(f"[gurukul]   push failed (will retry next batch): {str(e)[:150]}")
+
+    print(f"[gurukul] DONE kept={len(all_rows)} pushed={pushed} "
+          f"reasons={dict(reasons)} stopped_early={stopped_early}")
+    if len(all_rows) == 0:
+        print("[gurukul] nothing passed consensus (see probe + reasons above)")
+    if dry:
+        print(json.dumps(all_rows[:1], indent=2)[:700])
 
 
 if __name__ == "__main__":
