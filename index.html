@@ -595,7 +595,7 @@ async function refreshBrain(){
   try{
     const r = await fetch(DAMRU_API + '/health', {cache:'no-store'});
     const h = await r.json();
-    const big = (h && h.open_brain) ? (h.open_brain_model ? String(h.open_brain_model).split('/').pop() : 'Open Brain') : (h && h.backend==='gguf' ? 'Damru 3B (raw)' : ((h&&h.backend)||'brain'));
+    const big = 'Damru Brain';  // brand-safe: NEVER leak underlying model name (was showing gpt-os)
     const el = document.getElementById('hd-brain');
     if(el){ if(h&&h.ok){ el.textContent='\ud83e\udde0 '+big+(h.rag?' \u00b7 RAG':''); el.className='hd-brain '+(h.open_brain?'on':'raw'); } else { el.textContent='offline'; el.className='hd-brain off'; } }
     const wt = document.getElementById('wc-badge-t');
