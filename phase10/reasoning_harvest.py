@@ -3,20 +3,19 @@
 Nightly GURUKUL harvest runner (GitHub Action).
 Wires FREE teacher endpoints -> damru_gurukul -> pushes reasoning traces to HF.
 
-ETHIC: OFFLINE ONLY. Teachers generate training data; Damru never calls them
-live. Once distilled into RAG (today) + weights (Brain Forge), teacher dropped.
+ETHIC: OFFLINE ONLY. Teachers generate training data; Damru never calls them live.
 
-JUGAD for API/limits: keyless Pollinations with MULTIPLE models = multiple
-teachers from ONE endpoint; OpenRouter free tier added only if key present;
-TeacherPool round-robin + cooldown spreads load.
+JUGAD: keyless Pollinations with MULTIPLE models = multiple teachers from ONE
+endpoint; OpenRouter free tier added only if key present; TeacherPool round-robin
++ cooldown spreads load.
 
 Env:
   HF_TOKEN        (required to push)   HF WRITE token
   OPENROUTER_KEY  (optional)           adds OpenRouter free teachers
   TRACES_REPO     (default Damaru-ai/damru-reasoning-traces)
-  PER_DOMAIN      (default 2)          curriculum questions per domain
-  MIN_AGREEMENT   (default 0.6)        consensus threshold
-  DRY_RUN         (=1)                 mock teachers, no network, no push (local test)
+  PER_DOMAIN      (default 2)
+  MIN_AGREEMENT   (default 0.6)
+  DRY_RUN         (=1)                 mock teachers, no network, no push
 """
 import os
 import sys
@@ -25,7 +24,6 @@ import time
 import traceback
 import urllib.request
 
-# import damru_gurukul.py from repo root (this file lives in phase10/)
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _ROOT)
 from damru_gurukul import curriculum, TeacherPool, harvest  # noqa: E402
@@ -64,7 +62,6 @@ def make_openrouter_teacher(model, key):
 
 def build_pool():
     teachers = []
-    # keyless jugad: one endpoint, multiple models = multiple teachers
     for m in ["openai", "mistral", "deepseek"]:
         teachers.append((f"poll:{m}", make_pollinations_teacher(m)))
     key = os.environ.get("OPENROUTER_KEY")
@@ -78,6 +75,17 @@ def build_pool():
     return TeacherPool(teachers, cooldown_s=60)
 
 
+def _probe(pool):
+    """Diagnostic: ask ONE simple question, print each teacher's raw reply."""
+    print("[gurukul] --- teacher probe (diagnostic) ---")
+    msgs = [{"role": "system", "content": "You are a teacher. End with 'FINAL: <answer>'."},
+            {"role": "user", "content": "What is 12*8? Explain briefly."}]
+    got = pool.ask_all(msgs)
+    print(f"[gurukul] probe: {len(got)} teachers answered, {getattr(pool,'last_errors',0)} errored")
+    for g in got:
+        print(f"   [{g['teacher']}] {g['answer'][:160]!r}")
+
+
 def push_to_hf(rows, repo, token):
     from datasets import Dataset, concatenate_datasets, load_dataset
     new_ds = Dataset.from_list(rows)
@@ -85,7 +93,7 @@ def push_to_hf(rows, repo, token):
         old = load_dataset(repo, split="train", token=token)
         merged = concatenate_datasets([old, new_ds])
     except Exception:
-        merged = new_ds  # first run: repo empty / missing
+        merged = new_ds
     merged.push_to_hub(repo, token=token, private=True)
     return len(merged)
 
@@ -98,25 +106,26 @@ def main():
 
     if dry:
         def good(m):
-            return "Step 1: reason. Step 2: verify. FINAL: 42"
+            return "Data structures organize data: arrays, stacks, trees. FINAL: organize data for efficient access"
         def good2(m):
-            return "Analyze then conclude. FINAL: 42"
-        def bad(m):
-            return "FINAL: 999"
-        pool = TeacherPool([("t1", good), ("t2", good2), ("t3", bad)])
+            return "They structure data efficiently via arrays lists trees. FINAL: organize data for efficient access and ops"
+        pool = TeacherPool([("t1", good), ("t2", good2)])
     else:
         pool = build_pool()
+        _probe(pool)  # <- shows if endpoints actually answer
 
     items = curriculum(n_per_domain=per_domain)
-    print(f"[gurukul] {len(items)} curriculum questions; dry={dry}")
+    print(f"[gurukul] {len(items)} curriculum questions; min_agreement={min_agree}; dry={dry}")
     res = harvest(items, pool, min_agreement=min_agree)
-    print(f"[gurukul] kept={res['kept']} dropped={res['dropped']}")
+    print(f"[gurukul] kept={res['kept']} dropped={res['dropped']} reasons={res['reasons']}")
+    if res["kept"] == 0 and res.get("debug"):
+        print("[gurukul] sample drops:", json.dumps(res["debug"], indent=2)[:600])
 
     if dry:
-        print(json.dumps(res["rows"][:2], indent=2)[:900])
+        print(json.dumps(res["rows"][:1], indent=2)[:700])
         return
     if not res["rows"]:
-        print("[gurukul] nothing passed consensus; nothing to push")
+        print("[gurukul] nothing passed; check probe above (endpoints vs consensus)")
         return
     token = os.environ.get("HF_TOKEN")
     if not token:
