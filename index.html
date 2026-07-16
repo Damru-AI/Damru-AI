@@ -1385,11 +1385,26 @@ function welcomeHTML(){return `<div class='welcome' id='welcome'><div class='wc-
 </script>
 <script>
 window.__damruLLM = async function(messages, maxTokens){
-  var mt = maxTokens || 6000;
-  try { if (typeof engine === "function") return await engine(messages, mt, 0.35, "code"); } catch(e){ console.warn("visualise engine fail", e); }
-  try { if (typeof pollinations === "function") return await pollinations(messages, mt, 0.35); } catch(e){}
+  var mt = maxTokens || 3800;
+  try { if (typeof engine === "function") return await engine(messages, mt, 0.25, "code"); } catch(e){ console.warn("visualise engine fail", e); }
+  try { if (typeof pollinations === "function") return await pollinations(messages, mt, 0.25); } catch(e){}
   throw new Error("No LLM available");
+};
+window.__damruWebSearch = async function(query, limit){
+  var ctrl = new AbortController();
+  var timer = setTimeout(function(){ ctrl.abort(); }, 7500);
+  try {
+    var res = await fetch(DAMRU_API + '/web', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({query:String(query||''), limit:Math.min(5,Math.max(1,limit||5))}),
+      signal: ctrl.signal
+    });
+    if(!res.ok) throw new Error('web '+res.status);
+    var data = await res.json();
+    return data.results || [];
+  } finally { clearTimeout(timer); }
 };
 </script>
 <script src="damru_visualise.js"></script>
+<script src="damru_print_forge.js"></script>
 </body></html>
