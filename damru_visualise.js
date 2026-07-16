@@ -56,7 +56,8 @@
     raycaster: null, clock: null, rafId: null,
     measureMode: false, measurePts: [], measureObjs: [],
     walk: null, walkActive: false, move: { f: 0, b: 0, l: 0, r: 0, u: 0, d: 0 },
-    lastSpec: null, lastPrompt: '', units: 'm', built: false
+    lastSpec: null, lastPrompt: '', units: 'm', built: false,
+    generationSeq: 0, generating: false, research: []
   };
 
   // ---- tiny DOM helper -----------------------------------------------------
@@ -100,6 +101,7 @@
       + '#dv-prompt input:focus{border-color:#e8623d}'
       + '#dv-go{background:#e8623d;color:#fff;border:none;border-radius:10px;padding:0 18px;font-weight:700;cursor:pointer;font-size:14px}'
       + '#dv-go:disabled{opacity:.5;cursor:default}'
+      + '#dv-cancel{background:#51232a;border:1px solid #8a3945;color:#ffdfe3;border-radius:10px;padding:0 13px;cursor:pointer;display:none}'
       + '#dv-status{position:absolute;top:12px;left:12px;background:rgba(10,12,18,.85);border:1px solid #2b3350;border-radius:10px;padding:8px 13px;font-size:13px;display:none;align-items:center;gap:8px;max-width:70%}'
       + '#dv-status.show{display:flex}'
       + '.dv-spin{width:15px;height:15px;border:2px solid #3a4573;border-top-color:#e8623d;border-radius:50%;animation:dvspin .8s linear infinite}'
@@ -162,7 +164,7 @@
 
     var promptInput = el('input', { id: 'dv-prompt-in', type: 'text', placeholder: 'Describe anything: "a modern 3-floor villa", "gear with 12 teeth", "a whole smart city"...' });
     promptInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') runPrompt(); });
-    var promptBar = el('div', { id: 'dv-prompt' }, [promptInput, el('button', { id: 'dv-go', text: 'Visualise', onclick: runPrompt })]);
+    var promptBar = el('div', { id: 'dv-prompt' }, [promptInput, el('button', { id: 'dv-cancel', text: 'Cancel', onclick: cancelGeneration }), el('button', { id: 'dv-go', text: 'Visualise', onclick: runPrompt })]);
 
     var modal = el('div', { id: 'dv-modal' }, [top, body, promptBar]);
     document.body.appendChild(modal);
@@ -573,10 +575,15 @@
       download(blob, (S.lastSpec && S.lastSpec.name || 'damru-model') + '.glb');
     }, function (e) { toast('GLB export failed'); }, { binary: true });
   }
-  function exportSTL() {
-    if (!S.built) return toast('Nothing to export yet');
+  function getSTLBlob() {
+    if (!S.built || !STLExporter) return null;
     var stl = new STLExporter().parse(S.root, { binary: false });
-    download(new Blob([stl], { type: 'model/stl' }), (S.lastSpec && S.lastSpec.name || 'damru-model') + '.stl');
+    return new Blob([stl], { type: 'model/stl' });
+  }
+  function exportSTL() {
+    var blob = getSTLBlob();
+    if (!blob) return toast('Nothing to export yet');
+    download(blob, (S.lastSpec && S.lastSpec.name || 'damru-model') + '.stl');
   }
   function download(blob, name) {
     var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
@@ -661,24 +668,76 @@
     return JSON.parse(raw);
   }
 
+  function withTimeout(promise, ms, label) {
+    var timer;
+    return Promise.race([promise, new Promise(function (_, reject) {
+      timer = setTimeout(function () { reject(new Error((label || 'operation') + ' timeout')); }, ms);
+    })]).finally(function () { clearTimeout(timer); });
+  }
+
+  async function webResearch(prompt) {
+    try {
+      if (typeof window.__damruWebSearch !== 'function') return [];
+      var query = prompt + ' real dimensions material engineering 3D CAD design';
+      var data = await withTimeout(window.__damruWebSearch(query, 5), 8000, 'web research');
+      return Array.isArray(data) ? data.slice(0, 5) : ((data && data.results) || []).slice(0, 5);
+    } catch (e) { return []; }
+  }
+
+  function fallbackSpec(prompt) {
+    var x = (prompt || '').toLowerCase(), objects = [], mat = { color:'#d8734f', metalness:.15, roughness:.55 };
+    function box(id,w,h,d,pos,color){ objects.push({id:id,name:id,type:'box',size:{w:w,h:h,d:d},position:pos,material:{color:color||'#d8734f',metalness:.12,roughness:.58}}); }
+    if (/city|building|villa|house|tower/.test(x)) {
+      box('foundation',18,.35,14,[0,.18,0],'#777f91');
+      for (var i=0;i<5;i++) box('block-'+i,3,3+i*1.35,3,[i*3-6,(3+i*1.35)/2+.35,(i%2)*4-2],i%2?'#6687aa':'#c7835c');
+      box('road',22,.08,3,[0,.05,7],'#252b35');
+    } else if (/gear|cog/.test(x)) {
+      objects.push({id:'gear',name:'gear',type:'cylinder',size:{rt:4,rb:4,h:1},position:[0,.5,0],rotation:[0,0,0],material:{color:'#aeb7c7',metalness:.8,roughness:.25},csg:{operation:'subtract',with:[{id:'bore',name:'bore',type:'cylinder',size:{rt:1,rb:1,h:2},position:[0,0,0],material:mat}]}});
+    } else if (/table|desk/.test(x)) {
+      box('top',8,.5,4,[0,4,0],'#9b633d'); [[-3,2,-1.4],[3,2,-1.4],[-3,2,1.4],[3,2,1.4]].forEach(function(p,i){box('leg-'+i,.5,4,.5,p,'#68442c')});
+    } else if (/chair/.test(x)) {
+      box('seat',4,.5,4,[0,2.5,0]); box('back',4,4,.5,[0,4.5,1.75]); [[-1.5,1,-1.5],[1.5,1,-1.5],[-1.5,1,1.5],[1.5,1,1.5]].forEach(function(p,i){box('leg-'+i,.4,2.2,.4,p)});
+    } else {
+      box('base',8,.5,8,[0,.25,0],'#4f596d');
+      objects.push({id:'core',name:'concept-core',type:/ball|sphere/.test(x)?'sphere':'cylinder',size:/ball|sphere/.test(x)?{r:2.5}:{rt:2.6,rb:3.2,h:6},position:[0,3.5,0],material:mat});
+    }
+    return {name:'instant-'+(prompt||'model').slice(0,32).replace(/[^a-z0-9]+/ig,'-'),units:'m',environment:{ground:true,grid:true},objects:objects};
+  }
+
+  function cancelGeneration() {
+    S.generationSeq += 1; S.generating = false;
+    var c = document.getElementById('dv-cancel'); if (c) c.style.display = 'none';
+    var g = document.getElementById('dv-go'); if (g) g.disabled = false;
+    showStatus('AI refinement cancelled — instant draft kept.', false); setTimeout(hideStatus, 2200);
+  }
+
   async function generate(rawPrompt) {
     await loadLibs(); setupThree();
-    S.lastPrompt = rawPrompt;
-    showStatus('Refining your prompt...', true);
-    var refined = await refinePrompt(rawPrompt);
-    showStatus('Designing 3D model (Damru brain)...', true);
-    var spec, lastErr;
-    for (var attempt = 0; attempt < 2; attempt++) {
+    var seq = ++S.generationSeq; S.generating = true; S.lastPrompt = rawPrompt;
+    var cancel = document.getElementById('dv-cancel'); if (cancel) cancel.style.display = '';
+    // Zero-blank UX: deterministic draft appears immediately, independent of network/LLM.
+    buildFromSpec(fallbackSpec(rawPrompt));
+    showStatus('Instant draft ready · researching real-world dimensions…', true);
+    var hits = await webResearch(rawPrompt); if (seq !== S.generationSeq) return;
+    S.research = hits;
+    var context = hits.map(function(h,i){return '['+(i+1)+'] '+(h.title||'')+': '+(h.snippet||'').slice(0,700)+' '+(h.url||'');}).join('\n');
+    var user = rawPrompt + (context ? '\n\nFRESH WEB RESEARCH (use as reference, do not blindly copy):\n'+context : '') + '\n\nReturn a manufacturable, dimensioned STRICT JSON scene.';
+    showStatus('Instant draft visible · Damru refining with '+hits.length+' web sources…', true);
+    var spec = null, err = null;
+    try {
+      var out = await withTimeout(llm([{role:'system',content:SCHEMA},{role:'user',content:user}], 3800), 32000, 'Damru CAD');
+      spec = extractJSON(out);
+    } catch (e) { err = e; }
+    if (!spec && seq === S.generationSeq) {
       try {
-        var msgs = [{ role: 'system', content: SCHEMA }, { role: 'user', content: refined + (attempt ? '\n\nReturn STRICTLY valid JSON only.' : '') }];
-        var out = await llm(msgs, 7000);
-        spec = extractJSON(out); break;
-      } catch (e) { lastErr = e; }
+        var repaired = await withTimeout(llm([{role:'system',content:SCHEMA+'\nReturn compact valid JSON. Maximum 30 objects.'},{role:'user',content:rawPrompt}], 2200), 12000, 'CAD repair');
+        spec = extractJSON(repaired);
+      } catch (e2) { err = e2; }
     }
-    if (!spec) { showStatus('Could not parse a model. Try rephrasing. (' + (lastErr && lastErr.message) + ')', false); setTimeout(hideStatus, 3500); return; }
-    showStatus('Building scene...', true);
-    buildFromSpec(spec);
-    hideStatus();
+    if (seq !== S.generationSeq) return;
+    if (spec) { showStatus('Building researched precision model…', true); buildFromSpec(spec); toast('Research-refined model ready · '+hits.length+' sources'); }
+    else { showStatus('Instant model kept — refinement unavailable ('+(err&&err.message||'offline')+').', false); setTimeout(hideStatus, 3200); }
+    S.generating = false; if (cancel) cancel.style.display = 'none';
   }
 
   async function regenerateSelected() {
@@ -746,7 +805,7 @@
     }
   }
 
-  window.DamruVisualise = { open: open, close: close, generate: generate };
+  window.DamruVisualise = { open: open, close: close, generate: generate, getSTLBlob: getSTLBlob, cancel: cancelGeneration, state: S };
   window.openVisualise = function (p) { open(p); };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { setTimeout(injectLauncher, 800); });
