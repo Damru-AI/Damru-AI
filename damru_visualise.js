@@ -112,6 +112,8 @@
       + '#dv-prompt input{flex:1;background:#0b0d12;border:1px solid #2b3350;border-radius:10px;padding:11px 13px;color:#fff;font-size:14px;outline:none}'
       + '#dv-prompt input:focus{border-color:#e8623d}'
       + '#dv-go{background:#e8623d;color:#fff;border:none;border-radius:10px;padding:0 18px;font-weight:700;cursor:pointer;font-size:14px}'
+      + '#dv-photoreal{background:#1c9c6b;color:#fff;border:none;border-radius:10px;padding:0 12px;font-weight:700;cursor:pointer;font-size:12px}'
+      + '#dv-photoreal:disabled{opacity:.5;cursor:default}'
       + '#dv-go:disabled{opacity:.5;cursor:default}'
       + '#dv-cancel{background:#51232a;border:1px solid #8a3945;color:#ffdfe3;border-radius:10px;padding:0 13px;cursor:pointer;display:none}'
       + '#dv-status{position:absolute;top:12px;left:12px;background:rgba(10,12,18,.85);border:1px solid #2b3350;border-radius:10px;padding:8px 13px;font-size:13px;display:none;align-items:center;gap:8px;max-width:70%}'
@@ -179,7 +181,7 @@
 
     var promptInput = el('input', { id: 'dv-prompt-in', type: 'text', placeholder: 'Describe anything: "a modern 3-floor villa", "gear with 12 teeth", "a whole smart city"...' });
     promptInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') runPrompt(); });
-    var promptBar = el('div', { id: 'dv-prompt' }, [promptInput, el('button', { id: 'dv-cancel', text: 'Cancel', onclick: cancelGeneration }), el('button', { id: 'dv-go', text: 'Visualise', onclick: runPrompt })]);
+    var promptBar = el('div', { id: 'dv-prompt' }, [promptInput, el('button', { id: 'dv-cancel', text: 'Cancel', onclick: cancelGeneration }), el('button', { id: 'dv-photoreal', text: '\uD83C\uDF10 Photoreal 3D', title: 'AI image \u2192 real textured 3D (TRELLIS)', onclick: runPhotoreal }), el('button', { id: 'dv-go', text: 'Visualise', onclick: runPrompt })]);
 
     var modal = el('div', { id: 'dv-modal' }, [top, body, promptBar]);
     document.body.appendChild(modal);
@@ -627,6 +629,19 @@
     });
   }
   window.__damruLoadGLB = loadExternalGLB;
+
+  // prompt -> photoreal textured 3D (backend /model3d -> image -> TRELLIS -> GLB)
+  async function runPhotoreal() {
+    var inp = document.getElementById('dv-prompt-in');
+    var v = (inp && inp.value || '').trim();
+    if (!v) { toast('Type a prompt first'); return; }
+    var btn = document.getElementById('dv-photoreal'); if (btn) btn.disabled = true;
+    try {
+      if (typeof window.__damruPromptTo3D === 'function') await window.__damruPromptTo3D(v);
+      else toast('Photoreal bridge missing (update index.html)');
+    } catch (e) { console.warn('photoreal fail', e); hideStatus(); toast('Photoreal 3D failed: ' + (e && e.message || e)); }
+    finally { if (btn) btn.disabled = false; }
+  }
 
   // ---- export --------------------------------------------------------------
   function exportGLTF() {
