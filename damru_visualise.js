@@ -34,7 +34,11 @@
 
   async function loadLibs() {
     if (libsReady) return;
-    THREE = await import('three');
+    try { THREE = await import('three'); }
+    catch (e) {
+      console.warn('[visualise] primary three CDN failed, trying fallback', e);
+      THREE = await import('https://unpkg.com/three@0.160.0/build/three.module.js');
+    }
     OrbitControls = (await import('three/addons/controls/OrbitControls.js')).OrbitControls;
     TransformControls = (await import('three/addons/controls/TransformControls.js')).TransformControls;
     try { PointerLockControls = (await import('three/addons/controls/PointerLockControls.js')).PointerLockControls; } catch (e) {}
@@ -292,7 +296,17 @@
       case 'torusknot': return new THREE.TorusKnotGeometry(num(s.r || s.radius, 0.6), num(s.tube, 0.2), 100, 16);
       case 'lathe': return latheGeo(spec);
       case 'extrude': return extrudeGeo(spec);
-      default: return new THREE.BoxGeometry(1, 1, 1);
+      default: {
+        // Robust: unknown/AI-invented type -> infer a sensible primitive from size keys
+        // so a real shape renders instead of a tiny ugly 1x1x1 box.
+        if (num(s.tube, 0) > 0) return new THREE.TorusGeometry(num(s.r || s.radius, 0.6), num(s.tube, 0.2), 20, 48);
+        if (num(s.rt || s.radiusTop || s.rb || s.radiusBottom, 0) > 0) return new THREE.CylinderGeometry(num(s.rt || s.radiusTop || s.r || s.radius, 0.5), num(s.rb || s.radiusBottom || s.r || s.radius, 0.5), num(s.h || s.height, 1), 40);
+        if (num(s.r || s.radius, 0) > 0 && num(s.h || s.height, 0) > 0) return new THREE.CapsuleGeometry(num(s.r || s.radius, 0.4), num(s.h || s.height, 1), 8, 24);
+        if (num(s.r || s.radius, 0) > 0) return new THREE.SphereGeometry(num(s.r || s.radius, 0.5), 40, 28);
+        var _w = num(s.w || s.width, 0), _h = num(s.h || s.height, 0), _d = num(s.d || s.depth, 0);
+        if (_w || _h || _d) return new THREE.BoxGeometry(_w || 1, _h || 1, _d || 1);
+        return new THREE.BoxGeometry(1, 1, 1);
+      }
     }
   }
 
@@ -870,6 +884,8 @@
 
   function fallbackSpec(prompt) {
     var x = (prompt || '').toLowerCase();
+    var vaultSpec = window.DamruModelVault && window.DamruModelVault.build ? window.DamruModelVault.build(prompt) : null;
+    if (vaultSpec) return vaultSpec;
     if (isDNAPrompt(x)) return dnaSpec(prompt);
     if (isProteinPrompt(x)) return proteinSpec(prompt);
     if (isMoleculePrompt(x)) return moleculeSpec(prompt);
