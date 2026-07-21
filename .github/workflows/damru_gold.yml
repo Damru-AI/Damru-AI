@@ -1,0 +1,37 @@
+name: Damru Gold Ingest (Step 3)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # offset from omni (:00) and oracle (:30) to avoid overlap
+    - cron: "15 */6 * * *"
+
+concurrency:
+  group: damru-gold
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install "datasets>=2.19" "huggingface_hub>=0.24" "pyarrow>=15"
+
+      - name: Build gold corpus
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          GOLD_TIME_BUDGET_MIN: "300"
+          # GOLD_MAX_PER_SRC: "150000"   # per-source cap (keep corpus balanced)
+          # GOLD_RESET_SOURCES: ""        # e.g. "fineweb-edu" to reprocess one source
+        run: python damru_ingest_gold.py
