@@ -31,6 +31,7 @@ jobs:
       - name: Build gold corpus
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          GOLD_SOURCES: "nvidia/Open-SWE-Traces:sft:stream:cc-by-4.0:openhands,nvidia/Open-SWE-Traces:sft:stream:cc-by-4.0:sweagent,greghavens/kimi-k3-coding-and-debugging-traces:sft:stream:apache-2.0,AletheiaResearch/GLM-5.2-Agent:sft:stream:apache-2.0,ianncity/GLM-5.2-Science:sft:stream:apache-2.0,SupraLabs/reasoning-corpus-4K-5M-v1:reasoning:stream:apache-2.0,HuggingFaceFW/fineweb-edu:text:stream:odc-by,roneneldan/TinyStories:text:stream:cdla-sharing-1.0,wikimedia/wikipedia:text:files:cc-by-sa-3.0:20231101.en"
           GOLD_TIME_BUDGET_MIN: "300"
           # GOLD_MAX_PER_SRC: "150000"   # per-source cap (keep corpus balanced)
           # GOLD_RESET_SOURCES: ""        # e.g. "fineweb-edu" to reprocess one source
