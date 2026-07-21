@@ -1,0 +1,45 @@
+# .github/workflows/damru_omni.yml  (v2)
+# STEP 1 runner -- builds Damaru-ai/damru-omni, self-resumes on failure.
+#
+# The script mirrors state.json + seen-set to the HF repo, so each scheduled
+# run RESUMES where the last one stopped. The 300-min self-budget makes the
+# script stop cleanly BEFORE the runner limit, saving a checkpoint.
+
+name: Damru Omni Builder (Step 1)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */6 * * *"   # every 6h -> auto-resume until fully done
+
+concurrency:
+  group: damru-omni
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install "datasets>=2.19" "huggingface_hub>=0.24" "pyarrow>=15"
+
+      - name: Build unified omni dataset
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          OMNI_OUT_REPO: Damaru-ai/damru-omni
+          OMNI_SHARD_ROWS: "50000"
+          OMNI_TIME_BUDGET_MIN: "300"   # self-stop before the 340-min runner cap
+          OMNI_MAX_PER_SRC: "0"
+        run: python damru_omni_builder.py

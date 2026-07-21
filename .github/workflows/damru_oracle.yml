@@ -1,0 +1,42 @@
+# .github/workflows/damru_oracle.yml
+# STEP 2 runner -- builds Damaru-ai/damru-oracle (verifier answer-keys).
+# Facts only (problem + final answer + tests). No CoT/prose. Self-resumes.
+
+name: Damru Oracle Builder (Step 2)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 */6 * * *"   # offset from omni; every 6h auto-resume
+
+concurrency:
+  group: damru-oracle
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install "datasets>=2.19" "huggingface_hub>=0.24"
+
+      - name: Build oracle dataset
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          ORACLE_OUT_REPO: Damaru-ai/damru-oracle
+          ORACLE_SHARD_ROWS: "20000"
+          ORACLE_TIME_BUDGET_MIN: "300"
+          ORACLE_MAX_PER_SRC: "50000"
+        run: python damru_oracle_builder.py
