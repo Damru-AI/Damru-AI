@@ -1,0 +1,153 @@
+# ============================================================================
+#  DAMRU PERPETUAL RUNNER
+#  .github/workflows/damru_perpetual.yml
+# ----------------------------------------------------------------------------
+#  KYA KARTA HAI
+#  -------------
+#  Ek baar manually start karo -> ye khud ko baar baar re-launch karta rehta
+#  hai. Mobile band, tab close, internet off -- kuch farak nahi padta,
+#  kyunki sab GitHub ke cloud runner par chal raha hai.
+#
+#  HYBRID DESIGN (3 layer safety)
+#  ------------------------------
+#  LAYER 1  chain   : job apna kaam ~5h karke KHUD ko dobara dispatch karta hai
+#  LAYER 2  cron    : har 3 ghante watchdog -- agar chain toot gayi to phir
+#                     se shuru (concurrency ke wajah se double nahi chalega)
+#  LAYER 3  resume  : council.py existing rows dedupe karta hai, isliye
+#                     restart hone par kaam repeat nahi hota
+#
+#  EK BAAR KA SETUP
+#  ----------------
+#  Chain ke liye ek PAT chahiye (GITHUB_TOKEN khud ko trigger nahi kar sakta):
+#   1. github.com/settings/personal-access-tokens/new
+#   2. Fine-grained token -> Repository access: only Damru-AI/Damru-AI
+#   3. Permissions -> Actions: Read and write ; Contents: Read
+#   4. Expiration: 90 days -> Generate -> copy
+#   5. Repo -> Settings -> Secrets and variables -> Actions -> New secret
+#      Name: GH_DISPATCH_TOKEN     Value: <paste>
+#
+#  CHALANA
+#  -------
+#  Actions -> Damru Perpetual -> Run workflow -> Run
+#  Bas. Ab ye khud chalta rahega.
+#
+#  ROKNA
+#  -----
+#  Repo -> Settings -> Secrets -> GH_DISPATCH_TOKEN DELETE kar do
+#  (chain toot jayegi) ya Actions -> Damru Perpetual -> ... -> Disable workflow
+# ============================================================================
+
+name: Damru Perpetual
+
+on:
+  workflow_dispatch:
+    inputs:
+      generation:
+        description: "Chain generation counter (khud badhta hai)"
+        required: false
+        default: "1"
+      minutes:
+        description: "Is run ka work budget (minutes)"
+        required: false
+        default: "300"
+  schedule:
+    # LAYER 2 watchdog -- har 3 ghante
+    - cron: "20 */3 * * *"
+
+# ek waqt me sirf EK run. Duplicate apne aap cancel/queue ho jayega.
+concurrency:
+  group: damru-perpetual
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  council:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show generation
+        run: |
+          echo "generation = ${{ github.event.inputs.generation || 'cron' }}"
+          echo "budget     = ${{ github.event.inputs.minutes || '300' }} min"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install "datasets>=2.19" "huggingface_hub>=0.24" pandas pyarrow
+
+      - name: Run Damru Council
+        id: council
+        continue-on-error: true
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          GEMINI_KEY: ${{ secrets.GEMINI_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          OPENROUTER_KEY: ${{ secrets.OPENROUTER_KEY }}
+          NVIDIA_NIM_KEY: ${{ secrets.NVIDIA_NIM_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+          VLLM_URL: ${{ secrets.VLLM_URL }}
+          VLLM_MODEL: ${{ secrets.VLLM_MODEL }}
+          VLLM_KEY: ${{ secrets.VLLM_KEY }}
+          COUNCIL_TIME_BUDGET_MIN: ${{ github.event.inputs.minutes || '300' }}
+          COUNCIL_OUT_REPO: Damaru-ai/damru-council
+          COUNCIL_SRC_REPO: Damaru-ai/damru-oracle
+          COUNCIL_SRC_SPLIT: train
+          COUNCIL_N_SOLVERS: "3"
+          COUNCIL_COMMIT_EVERY_SEC: "600"
+          COUNCIL_JUDGE_MIN: "7"
+          LOADER_MAX_ROWS: ${{ vars.LOADER_MAX_ROWS || '0' }}
+        run: python damru_council.py
+
+      - name: Council result
+        run: echo "council outcome = ${{ steps.council.outcome }}"
+
+      # ---- LAYER 1: khud ko dobara launch karo (infinite chain) ----
+      - name: Relaunch next generation
+        if: ${{ always() }}
+        env:
+          GH_DISPATCH_TOKEN: ${{ secrets.GH_DISPATCH_TOKEN }}
+          GEN: ${{ github.event.inputs.generation || '0' }}
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref_name }}
+        run: |
+          if [ -z "$GH_DISPATCH_TOKEN" ]; then
+            echo "::warning::GH_DISPATCH_TOKEN nahi hai -- chain band. Sirf cron watchdog chalega."
+            exit 0
+          fi
+
+          NEXT=$(( ${GEN:-0} + 1 ))
+          echo "dispatching generation $NEXT ..."
+
+          # thoda gap -- rate limit aur runner churn se bachne ke liye
+          sleep 45
+
+          HTTP=$(curl -s -o /tmp/resp.json -w "%{http_code}" \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_DISPATCH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPO/actions/workflows/damru_perpetual.yml/dispatches" \
+            -d "{\"ref\":\"$REF\",\"inputs\":{\"generation\":\"$NEXT\",\"minutes\":\"300\"}}")
+
+          echo "dispatch HTTP $HTTP"
+          if [ "$HTTP" = "204" ]; then
+            echo "CHAIN OK -> generation $NEXT queued"
+          else
+            cat /tmp/resp.json || true
+            echo "::warning::chain dispatch failed (HTTP $HTTP). Cron watchdog fallback hai."
+          fi
