@@ -1,44 +1,85 @@
 #!/usr/bin/env python3
-# Damru Council (Step 4) - cloud, tab-free, multi-solver.
-# Providers are auto-enabled by whichever secrets exist. Uses OpenAI-compatible
-# chat endpoints for vLLM / Cerebras / OpenRouter / NVIDIA NIM / Groq / Mistral / GH Models.
-# Gemini is the judge. Reads problems from oracle, writes verified sft + dpo splits.
-import os, sys, json, time, subprocess, tempfile, logging, random, hashlib
+# ============================================================================
+#  DAMRU COUNCIL  --  multi-solver verified data engine
+#  ----------------------------------------------------------------------------
+#  Kaam: oracle repo se PROBLEMS lo -> multiple free LLM solvers se solve
+#  karao -> code EXECUTE karke verify karo -> Gemini se judge karao ->
+#  best (shortest passing) solution = SFT row, worst = DPO rejected ->
+#  HuggingFace pe push.
+#
+#  DESIGN RULES
+#  ------------
+#  * SELF-RECOVERING: koi bhi provider mare -> baaki chalte rahenge
+#  * 400/401/403/404 par turant BAIL (retry storm nahi)
+#  * RESUME: existing rows dedupe hokar skip hote hain
+#  * PERIODIC PUSH: crash/timeout hone par bhi kaam bacha rehta hai
+#  * TIME BUDGET: GitHub Actions 6h limit se pehle safe exit
+#  * NO load_dataset(): damru_loader ka robust loader use hota hai
+#
+#  REQUIRED SECRET : HF_TOKEN
+#  SOLVER SECRETS  : CEREBRAS_API_KEY | OPENROUTER_KEY | NVIDIA_NIM_KEY |
+#                    GROQ_API_KEY | MISTRAL_API_KEY | GH_MODELS_TOKEN |
+#                    VLLM_URL + VLLM_MODEL + VLLM_KEY
+#  JUDGE SECRET    : GEMINI_KEY (optional -- na ho to code-exec hi judge hai)
+# ============================================================================
 
-import requests
-from datasets import load_dataset, Dataset, DatasetDict
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+
+from damru_loader import load_problems
 
 NL = chr(10)
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s | %(levelname)s | %(message)s",
-                    datefmt="%Y-%m-%d %H:%M:%S")
-log = logging.getLogger("council")
+START_TS = time.time()
 
 
-def env(k, d=None):
-    v = os.environ.get(k)
-    return v if v not in (None, "") else d
+# ---------------------------------------------------------------------------
+# env helpers
+# ---------------------------------------------------------------------------
+def env(key, default=""):
+    v = os.environ.get(key)
+    if v is None:
+        return default
+    v = v.strip()
+    return v if v else default
 
 
-def envi(k, d):
+def envi(key, default=0):
     try:
-        return int(os.environ.get(k, d))
+        return int(float(env(key, str(default))))
     except Exception:
-        return int(d)
+        return default
 
 
-def envf(k, d):
+def envf(key, default=0.0):
     try:
-        return float(os.environ.get(k, d))
+        return float(env(key, str(default)))
     except Exception:
-        return float(d)
+        return default
 
+
+def log(msg):
+    el = int(time.time() - START_TS)
+    print("[council +" + str(el) + "s] " + str(msg), flush=True)
+
+
+# ---------------------------------------------------------------------------
+# config
+# ---------------------------------------------------------------------------
+HF_TOKEN = env("HF_TOKEN")
 
 OUT_REPO = env("COUNCIL_OUT_REPO", "Damaru-ai/damru-council")
 SRC_REPO = env("COUNCIL_SRC_REPO", "Damaru-ai/damru-oracle")
 SRC_SPLIT = env("COUNCIL_SRC_SPLIT", "train")
-MAX_PROBLEMS = envi("COUNCIL_MAX_PROBLEMS", 0)
-TIME_BUDGET_MIN = envi("COUNCIL_TIME_BUDGET_MIN", 300)
+
+MAX_PROBLEMS = envi("COUNCIL_MAX_PROBLEMS", 0)          # 0 = unlimited
+TIME_BUDGET_MIN = envi("COUNCIL_TIME_BUDGET_MIN", 300)  # Actions 360 limit se safe
 COMMIT_EVERY_SEC = envi("COUNCIL_COMMIT_EVERY_SEC", 600)
 N_SOLVERS = envi("COUNCIL_N_SOLVERS", 3)
 REQ_TIMEOUT = envi("COUNCIL_REQ_TIMEOUT", 90)
@@ -46,135 +87,275 @@ MAX_TOKENS = envi("COUNCIL_MAX_TOKENS", 1024)
 TEMPERATURE = envf("COUNCIL_TEMPERATURE", 0.3)
 CODE_EXEC = envi("COUNCIL_CODE_EXEC", 1)
 CODE_TIMEOUT = envi("COUNCIL_CODE_TIMEOUT", 10)
-JUDGE_MIN = envf("COUNCIL_JUDGE_MIN", 7)
-HF_TOKEN = env("HF_TOKEN")
+JUDGE_MIN = envi("COUNCIL_JUDGE_MIN", 7)
+
+GEMINI_KEY = env("GEMINI_KEY")
+GEMINI_JUDGE_MODEL = env("GEMINI_JUDGE_MODEL", "gemini-2.0-flash")
+
+SYS_PROMPT = (
+    "You are an expert Python engineer. Solve the problem with clean, correct, "
+    "efficient code. Return ONE fenced python code block. No explanation outside "
+    "the code block. Include a small self-test under "
+    'if __name__ == "__main__":'
+)
 
 
+# ---------------------------------------------------------------------------
+# providers
+# ---------------------------------------------------------------------------
 def build_providers():
-    p = []
-    if env("VLLM_URL"):
-        p.append(dict(name="vllm", base=env("VLLM_URL"), key=env("VLLM_KEY", ""),
-                      model=env("VLLM_MODEL", "")))
+    """Sirf un providers ko active karo jinke secrets maujood hain."""
+    provs = []
+
+    vllm_url = env("VLLM_URL")
+    if vllm_url:
+        provs.append({
+            "name": "vllm",
+            "url": vllm_url,
+            "key": env("VLLM_KEY", "damru-secret"),
+            "model": env("VLLM_MODEL", "Qwen/Qwen2.5-Coder-14B-Instruct-AWQ"),
+        })
+
     if env("CEREBRAS_API_KEY"):
-        p.append(dict(name="cerebras", base="https://api.cerebras.ai/v1/chat/completions",
-                      key=env("CEREBRAS_API_KEY"), model=env("CEREBRAS_MODEL", "llama-3.3-70b")))
+        provs.append({
+            "name": "cerebras",
+            "url": "https://api.cerebras.ai/v1/chat/completions",
+            "key": env("CEREBRAS_API_KEY"),
+            "model": env("CEREBRAS_MODEL", "llama-3.3-70b"),
+        })
+
     if env("OPENROUTER_KEY"):
-        p.append(dict(name="openrouter", base="https://openrouter.ai/api/v1/chat/completions",
-                      key=env("OPENROUTER_KEY"),
-                      model=env("OPENROUTER_MODEL", "qwen/qwen-2.5-coder-32b-instruct:free")))
+        provs.append({
+            "name": "openrouter",
+            "url": "https://openrouter.ai/api/v1/chat/completions",
+            "key": env("OPENROUTER_KEY"),
+            "model": env("OPENROUTER_MODEL", "qwen/qwen-2.5-coder-32b-instruct:free"),
+        })
+
     if env("NVIDIA_NIM_KEY"):
-        p.append(dict(name="nim", base="https://integrate.api.nvidia.com/v1/chat/completions",
-                      key=env("NVIDIA_NIM_KEY"), model=env("NIM_MODEL", "qwen/qwen2.5-coder-32b-instruct")))
+        provs.append({
+            "name": "nim",
+            "url": "https://integrate.api.nvidia.com/v1/chat/completions",
+            "key": env("NVIDIA_NIM_KEY"),
+            "model": env("NIM_MODEL", "qwen/qwen2.5-coder-32b-instruct"),
+        })
+
     if env("GROQ_API_KEY"):
-        p.append(dict(name="groq", base="https://api.groq.com/openai/v1/chat/completions",
-                      key=env("GROQ_API_KEY"), model=env("GROQ_MODEL", "llama-3.3-70b-versatile")))
+        provs.append({
+            "name": "groq",
+            "url": "https://api.groq.com/openai/v1/chat/completions",
+            "key": env("GROQ_API_KEY"),
+            "model": env("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        })
+
     if env("MISTRAL_API_KEY"):
-        p.append(dict(name="mistral", base="https://api.mistral.ai/v1/chat/completions",
-                      key=env("MISTRAL_API_KEY"), model=env("MISTRAL_MODEL", "mistral-large-latest")))
+        provs.append({
+            "name": "mistral",
+            "url": "https://api.mistral.ai/v1/chat/completions",
+            "key": env("MISTRAL_API_KEY"),
+            "model": env("MISTRAL_MODEL", "mistral-large-latest"),
+        })
+
     if env("GH_MODELS_TOKEN"):
-        p.append(dict(name="gh_models", base="https://models.inference.ai.azure.com/chat/completions",
-                      key=env("GH_MODELS_TOKEN"), model=env("GH_MODELS_MODEL", "gpt-4o-mini")))
-    return p
+        provs.append({
+            "name": "gh_models",
+            "url": "https://models.inference.ai.azure.com/chat/completions",
+            "key": env("GH_MODELS_TOKEN"),
+            "model": env("GH_MODELS_MODEL", "gpt-4o-mini"),
+        })
+
+    return provs
+
+
+DEAD = set()   # jo provider permanently fail ho gaya
+
+
+def http_post_json(url, headers, payload, timeout):
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=body, method="POST")
+    for k, v in headers.items():
+        req.add_header(k, v)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8", errors="ignore"))
 
 
 def openai_chat(prov, messages, retries=3):
-    headers = {"Authorization": "Bearer " + str(prov["key"]), "Content-Type": "application/json"}
-    if prov["name"] == "openrouter":
+    """OpenAI-compatible chat call. Fatal error par turant None (no retry storm)."""
+    name = prov["name"]
+    if name in DEAD:
+        return None
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + prov["key"],
+    }
+    if name == "openrouter":
         headers["HTTP-Referer"] = "https://github.com/Damru-AI"
         headers["X-Title"] = "Damru Council"
-    payload = {"model": prov["model"], "messages": messages,
-               "max_tokens": MAX_TOKENS, "temperature": TEMPERATURE}
-    for a in range(retries):
+
+    payload = {
+        "model": prov["model"],
+        "messages": messages,
+        "max_tokens": MAX_TOKENS,
+        "temperature": TEMPERATURE,
+    }
+
+    for attempt in range(1, retries + 1):
         try:
-            r = requests.post(prov["base"], headers=headers, json=payload, timeout=REQ_TIMEOUT)
-            if r.status_code == 200:
-                return r.json()["choices"][0]["message"]["content"]
-            log.warning("[retry] chat:%s failed (%d/%d): HTTP %d: %s",
-                        prov["name"], a + 1, retries, r.status_code, r.text[:160])
-            # permission / model / not-found errors will NOT fix by retrying -> bail out fast
-            if r.status_code in (400, 401, 403, 404):
+            data = http_post_json(prov["url"], headers, payload, REQ_TIMEOUT)
+            choices = data.get("choices") or []
+            if not choices:
                 return None
+            msg = choices[0].get("message") or {}
+            content = msg.get("content")
+            if isinstance(content, list):
+                parts = []
+                for c in content:
+                    if isinstance(c, dict) and isinstance(c.get("text"), str):
+                        parts.append(c["text"])
+                content = NL.join(parts)
+            if isinstance(content, str) and content.strip():
+                return content
+            return None
+
+        except urllib.error.HTTPError as e:
+            code = e.code
+            detail = ""
+            try:
+                detail = e.read().decode("utf-8", errors="ignore")[:200]
+            except Exception:
+                pass
+            # FATAL: auth / permission / bad model / bad route -> kabhi theek nahi hoga
+            if code in (400, 401, 403, 404):
+                log("FATAL " + name + " HTTP " + str(code) + " -> disabling. " + detail)
+                DEAD.add(name)
+                return None
+            log("retry " + name + " (" + str(attempt) + "/" + str(retries) + ") HTTP " + str(code))
         except Exception as e:
-            log.warning("[retry] chat:%s exc (%d/%d): %s",
-                        prov["name"], a + 1, retries, str(e)[:150])
-        time.sleep(min(2 ** a, 8) + random.random())
+            log("retry " + name + " (" + str(attempt) + "/" + str(retries) + ") " + str(e)[:120])
+
+        if attempt < retries:
+            time.sleep(2 * attempt)
+
     return None
 
 
-def gemini_judge(problem, solution):
-    key = env("GEMINI_KEY") or env("GEMINI_API_KEY")
-    if not key:
-        return 10.0  # no judge configured -> pass verified solutions through
-    model = env("GEMINI_JUDGE_MODEL", "gemini-2.0-flash")
-    url = ("https://generativelanguage.googleapis.com/v1beta/models/"
-           + model + ":generateContent?key=" + key)
-    prompt = ("Rate from 0 to 10 how correct and complete this SOLUTION is for the PROBLEM. "
-              "Reply with ONLY a number." + NL + NL + "PROBLEM:" + NL + problem[:4000]
-              + NL + NL + "SOLUTION:" + NL + solution[:4000])
-    try:
-        r = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=REQ_TIMEOUT)
-        if r.status_code == 200:
-            t = r.json()["candidates"][0]["content"]["parts"][0]["text"]
-            n = first_number(t)
-            if n is not None:
-                return n
-        else:
-            log.warning("judge HTTP %d: %s", r.status_code, r.text[:120])
-    except Exception as e:
-        log.warning("judge exc: %s", str(e)[:150])
-    return 0.0
-
-
-def first_number(t):
+# ---------------------------------------------------------------------------
+# judge
+# ---------------------------------------------------------------------------
+def first_number(text):
     num = ""
-    for ch in t:
-        if ch.isdigit() or (ch == "." and num):
+    for ch in str(text):
+        if ch.isdigit():
             num += ch
         elif num:
             break
+    if not num:
+        return None
     try:
-        return float(num) if num else None
+        return int(num)
     except Exception:
         return None
 
 
+def gemini_judge(problem, code):
+    """0-10 score. Gemini na ho to None (tab code-exec hi decide karega)."""
+    if not GEMINI_KEY:
+        return None
+
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        + GEMINI_JUDGE_MODEL
+        + ":generateContent?key="
+        + GEMINI_KEY
+    )
+    prompt = (
+        "Rate this Python solution 0-10 for correctness, efficiency and clarity."
+        + NL + "Reply with ONLY the integer."
+        + NL + NL + "PROBLEM:" + NL + str(problem)[:2000]
+        + NL + NL + "SOLUTION:" + NL + str(code)[:4000]
+    )
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+
+    try:
+        data = http_post_json(url, {"Content-Type": "application/json"}, payload, REQ_TIMEOUT)
+        cands = data.get("candidates") or []
+        if not cands:
+            return None
+        parts = (cands[0].get("content") or {}).get("parts") or []
+        if not parts:
+            return None
+        n = first_number(parts[0].get("text", ""))
+        if n is None:
+            return None
+        return max(0, min(10, n))
+    except Exception as e:
+        log("judge failed: " + str(e)[:120])
+        return None
+
+
+# ---------------------------------------------------------------------------
+# code extraction + execution
+# ---------------------------------------------------------------------------
 def extract_code(text):
-    if not text:
+    """Fenced block se code nikaalo (regex-free)."""
+    if not isinstance(text, str):
         return ""
-    if "```" in text:
-        parts = text.split("```")
-        blocks = []
-        for i in range(1, len(parts), 2):
-            b = parts[i]
-            nl = b.find(NL)
-            if nl != -1 and b[:nl].strip().lower() in ("python", "py", ""):
-                b = b[nl + 1:]
-            blocks.append(b)
-        if blocks:
-            return max(blocks, key=len).strip()
-    return text.strip()
+    fence = "```"
+    if fence not in text:
+        return text.strip()
+    chunks = text.split(fence)
+    best = ""
+    i = 1
+    while i < len(chunks):
+        block = chunks[i]
+        lines = block.split(NL)
+        if lines and lines[0].strip().lower() in ("python", "py", "python3", ""):
+            body = NL.join(lines[1:])
+        else:
+            body = block
+        body = body.strip()
+        if len(body) > len(best):
+            best = body
+        i += 2
+    return best if best else text.strip()
 
 
 def looks_like_python(code):
-    if not code:
+    if not code or len(code.strip()) < 10:
         return False
-    hints = ("def ", "import ", "print(", "class ", "return ", "for ", "while ", "=")
-    return any(h in code for h in hints)
+    markers = ("def ", "class ", "import ", "for ", "while ", "return", "print(", "=")
+    hits = 0
+    for m in markers:
+        if m in code:
+            hits += 1
+    return hits >= 2
 
 
 def run_code(code):
+    """Sandbox-ish exec. Returns (ok, output)."""
+    if not CODE_EXEC:
+        return True, "exec disabled"
+    if not looks_like_python(code):
+        return False, "not python-like"
+
     path = None
     try:
-        f = tempfile.NamedTemporaryFile("w", suffix=".py", delete=False)
-        f.write(code)
-        f.close()
-        path = f.name
-        pr = subprocess.run([sys.executable, path], capture_output=True, text=True, timeout=CODE_TIMEOUT)
-        return pr.returncode == 0, (pr.stdout + pr.stderr)[-400:]
+        fd, path = tempfile.mkstemp(suffix=".py")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(code)
+        proc = subprocess.run(
+            [sys.executable, path],
+            capture_output=True,
+            text=True,
+            timeout=CODE_TIMEOUT,
+        )
+        out = (proc.stdout or "") + (proc.stderr or "")
+        return proc.returncode == 0, out[:1500]
     except subprocess.TimeoutExpired:
-        return False, "timeout"
+        return False, "timeout after " + str(CODE_TIMEOUT) + "s"
     except Exception as e:
-        return False, str(e)[:200]
+        return False, str(e)[:300]
     finally:
         if path:
             try:
@@ -183,124 +364,217 @@ def run_code(code):
                 pass
 
 
-def hash_prompt(s):
-    return hashlib.md5(s.strip().encode("utf-8", "ignore")).hexdigest()
+# ---------------------------------------------------------------------------
+# dataset helpers
+# ---------------------------------------------------------------------------
+def hash_prompt(text):
+    return hashlib.md5(str(text)[:2000].encode("utf-8", errors="ignore")).hexdigest()
 
 
 def extract_prompt(row):
-    for k in ("problem", "prompt", "question", "instruction", "input", "text"):
+    if isinstance(row, str):
+        return row.strip()
+    if not isinstance(row, dict):
+        return ""
+    for k in ("prompt", "problem", "question", "instruction", "input", "text"):
         v = row.get(k)
-        if isinstance(v, str) and v.strip():
+        if isinstance(v, str) and len(v.strip()) >= 20:
             return v.strip()
     return ""
 
 
 def load_existing():
-    sft, dpo = [], []
+    """Purane rows + unke hashes (resume ke liye). Fail = fresh start."""
+    sft, dpo, done = [], [], set()
     try:
-        d = load_dataset(OUT_REPO, split="sft", token=HF_TOKEN)
-        sft = [dict(x) for x in d]
-    except Exception:
-        pass
-    try:
-        d = load_dataset(OUT_REPO, split="dpo", token=HF_TOKEN)
-        dpo = [dict(x) for x in d]
-    except Exception:
-        pass
-    return sft, dpo
+        from datasets import load_dataset
+        for split_name, bucket in (("sft", sft), ("dpo", dpo)):
+            try:
+                d = load_dataset(OUT_REPO, split=split_name, token=HF_TOKEN)
+                for r in d:
+                    bucket.append(dict(r))
+            except Exception:
+                pass
+        for r in sft:
+            h = r.get("phash")
+            if h:
+                done.add(h)
+        log("resume: sft=" + str(len(sft)) + " dpo=" + str(len(dpo)) + " done=" + str(len(done)))
+    except Exception as e:
+        log("resume skipped: " + str(e)[:140])
+    return sft, dpo, done
 
 
-def push(sft_rows, dpo_rows):
-    dd = {}
-    if sft_rows:
-        dd["sft"] = Dataset.from_list(sft_rows)
-    if dpo_rows:
-        dd["dpo"] = Dataset.from_list(dpo_rows)
-    if not dd:
-        return
-    DatasetDict(dd).push_to_hub(OUT_REPO, token=HF_TOKEN)
+def push(sft, dpo):
+    if not sft and not dpo:
+        log("push skipped (nothing new)")
+        return False
+    try:
+        from datasets import Dataset, DatasetDict
+        parts = {}
+        if sft:
+            parts["sft"] = Dataset.from_list(sft)
+        if dpo:
+            parts["dpo"] = Dataset.from_list(dpo)
+        DatasetDict(parts).push_to_hub(OUT_REPO, token=HF_TOKEN)
+        log("PUSHED -> " + OUT_REPO + " sft=" + str(len(sft)) + " dpo=" + str(len(dpo)))
+        return True
+    except Exception as e:
+        log("PUSH FAILED: " + str(e)[:250])
+        return False
+
+
+# ---------------------------------------------------------------------------
+# core: ek problem par council chalao
+# ---------------------------------------------------------------------------
+def council_round(problem, providers):
+    scored = []
+    used = 0
+
+    for prov in providers:
+        if used >= N_SOLVERS:
+            break
+        if prov["name"] in DEAD:
+            continue
+
+        raw = openai_chat(prov, [
+            {"role": "system", "content": SYS_PROMPT},
+            {"role": "user", "content": str(problem)[:6000]},
+        ])
+        if not raw:
+            continue
+
+        used += 1
+        code = extract_code(raw)
+        if not code:
+            continue
+
+        ok, out = run_code(code)
+        score = gemini_judge(problem, code)
+        if score is None:
+            score = 8 if ok else 3
+
+        scored.append({
+            "solver": prov["name"],
+            "model": prov["model"],
+            "code": code,
+            "exec_ok": bool(ok),
+            "exec_out": out,
+            "score": int(score),
+            "length": len(code),
+        })
+
+    return scored
 
 
 def main():
-    provs = build_providers()
-    if not provs:
-        log.error("No solver providers configured. Set at least one secret: "
-                  "CEREBRAS_API_KEY, OPENROUTER_KEY, VLLM_URL, NVIDIA_NIM_KEY, "
-                  "GROQ_API_KEY, MISTRAL_API_KEY, or GH_MODELS_TOKEN.")
-        sys.exit(1)
-    log.info("Active solvers: %s", ", ".join(p["name"] + "(" + str(p["model"]) + ")" for p in provs))
-    solvers = provs[:max(1, N_SOLVERS)]
+    if not HF_TOKEN:
+        log("FATAL: HF_TOKEN missing")
+        return 1
 
-    ds = load_dataset(SRC_REPO, split=SRC_SPLIT, token=HF_TOKEN)
-    log.info("Loaded %d problems from %s", len(ds), SRC_REPO)
+    providers = build_providers()
+    if not providers:
+        log("FATAL: koi solver active nahi hai.")
+        log("Ye secrets me se KAM SE KAM EK daalo: CEREBRAS_API_KEY, OPENROUTER_KEY,")
+        log("NVIDIA_NIM_KEY, GROQ_API_KEY, MISTRAL_API_KEY, GH_MODELS_TOKEN, VLLM_URL")
+        return 1
 
-    sft_rows, dpo_rows = load_existing()
-    done = set(hash_prompt(r.get("prompt", "")) for r in sft_rows if r.get("prompt"))
-    log.info("Resuming with sft=%d dpo=%d (already done=%d)", len(sft_rows), len(dpo_rows), len(done))
+    names = []
+    for p in providers:
+        names.append(p["name"] + "(" + p["model"] + ")")
+    log("Active solvers: " + ", ".join(names))
+    log("Judge: " + (GEMINI_JUDGE_MODEL if GEMINI_KEY else "code-exec only"))
 
-    start = time.time()
-    last_commit = time.time()
+    # ---- problems load (robust loader -- load_dataset ka schema crash nahi) ----
+    ds = load_problems(SRC_REPO, SRC_SPLIT, HF_TOKEN)
+    if not ds:
+        log("FATAL: 0 problems loaded from " + SRC_REPO)
+        return 1
+    log("problems available: " + str(len(ds)))
+
+    sft, dpo, done = load_existing()
+    new_sft, new_dpo = 0, 0
+
+    deadline = START_TS + (TIME_BUDGET_MIN * 60)
+    last_push = time.time()
     processed = 0
 
     for row in ds:
+        if time.time() >= deadline:
+            log("TIME BUDGET reached -- stopping cleanly")
+            break
         if MAX_PROBLEMS and processed >= MAX_PROBLEMS:
+            log("MAX_PROBLEMS reached")
             break
-        if (time.time() - start) / 60.0 >= TIME_BUDGET_MIN:
-            log.info("Time budget reached.")
+        if all(p["name"] in DEAD for p in providers):
+            log("ALL solvers dead -- stopping to save time")
             break
-        prompt = extract_prompt(row)
-        if not prompt:
-            continue
-        h = hash_prompt(prompt)
-        if h in done:
+
+        problem = extract_prompt(row)
+        if not problem:
             continue
 
-        cands = []
-        for p in solvers:
-            out = openai_chat(p, [{"role": "user", "content": prompt}])
-            if out:
-                cands.append((p["name"], out))
-        if not cands:
+        ph = hash_prompt(problem)
+        if ph in done:
+            continue
+        done.add(ph)
+        processed += 1
+
+        scored = council_round(problem, providers)
+        if not scored:
             continue
 
-        scored = []
-        for name, out in cands:
-            code = extract_code(out)
-            ok = True
-            if CODE_EXEC and looks_like_python(code):
-                ok, _ = run_code(code)
-            score = gemini_judge(prompt, out) if ok else 0.0
-            scored.append(dict(name=name, out=out, code=code, ok=ok,
-                               score=score, length=len(code or out)))
+        passing = [s for s in scored if s["exec_ok"] and s["score"] >= JUDGE_MIN]
 
-        passing = [s for s in scored if s["ok"] and s["score"] >= JUDGE_MIN]
         if passing:
-            # efficiency selector: shortest passing solution, tie -> highest score
+            # EFFICIENCY IS A FEATURE: sabse chhota passing solution jeetta hai
             best = sorted(passing, key=lambda s: (s["length"], -s["score"]))[0]
-            sft_rows.append({"prompt": prompt, "response": best["out"],
-                             "source": best["name"], "score": best["score"]})
-            done.add(h)
-            worst = sorted(scored, key=lambda s: (s["score"], -s["length"]))[0]
-            if worst["out"] != best["out"]:
-                dpo_rows.append({"prompt": prompt, "chosen": best["out"], "rejected": worst["out"]})
-            processed += 1
+            sft.append({
+                "phash": ph,
+                "problem": problem,
+                "solution": best["code"],
+                "solver": best["solver"],
+                "model": best["model"],
+                "score": best["score"],
+                "length": best["length"],
+                "verified": True,
+            })
+            new_sft += 1
 
-        if time.time() - last_commit >= COMMIT_EVERY_SEC:
-            log.info("Commit: sft=%d dpo=%d (new this run=%d)", len(sft_rows), len(dpo_rows), processed)
-            try:
-                push(sft_rows, dpo_rows)
-            except Exception as e:
-                log.warning("push failed: %s", str(e)[:200])
-            last_commit = time.time()
+            if len(scored) >= 2:
+                worst = sorted(scored, key=lambda s: (s["score"], -s["length"]))[0]
+                if worst["code"] != best["code"]:
+                    dpo.append({
+                        "phash": ph,
+                        "prompt": problem,
+                        "chosen": best["code"],
+                        "rejected": worst["code"],
+                        "chosen_score": best["score"],
+                        "rejected_score": worst["score"],
+                    })
+                    new_dpo += 1
 
-    log.info("FINAL commit: sft=%d dpo=%d (new this run=%d)", len(sft_rows), len(dpo_rows), processed)
-    try:
-        push(sft_rows, dpo_rows)
-        log.info("DONE. Pushed to %s", OUT_REPO)
-    except Exception as e:
-        log.error("final push failed: %s", str(e)[:300])
-        sys.exit(1)
+        if processed % 10 == 0:
+            log("progress: seen=" + str(processed) + " sft+=" + str(new_sft) + " dpo+=" + str(new_dpo))
+
+        if time.time() - last_push >= COMMIT_EVERY_SEC:
+            push(sft, dpo)
+            last_push = time.time()
+
+    push(sft, dpo)
+    log("FINAL: processed=" + str(processed) + " new_sft=" + str(new_sft) + " new_dpo=" + str(new_dpo))
+    log("totals: sft=" + str(len(sft)) + " dpo=" + str(len(dpo)))
+    if DEAD:
+        log("dead solvers: " + ", ".join(sorted(DEAD)))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        log("interrupted")
+        sys.exit(0)
+    except Exception as e:
+        log("UNCAUGHT: " + str(e)[:400])
+        sys.exit(1)
