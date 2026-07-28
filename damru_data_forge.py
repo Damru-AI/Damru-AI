@@ -7,16 +7,30 @@ strong OPEN-WEIGHT teachers se distill karo -- DeepSeek-R1 / Gemma ka raaz.
 
 SELF-SWITCHING: multiple providers + multiple keys (comma-separated). Jab koi
 provider 429/quota deta hai -> use cooldown me daal ke agla healthy pick.
-GROQ HATA DIYA (commercial email maangta). Personal-Gmail teachers only.
+15-PROVIDER COUNCIL: Cerebras, OpenRouter, GitHub Models, HF Router,
+  SambaNova, Together, DeepInfra, Hyperbolic, Mistral, NVIDIA NIM,
+  Cloudflare AI, Fireworks, Cohere, Chutes, Scaleway
 
 RUNS on ANY free cloud CPU (GitHub Actions cron / HF Space) -- NO device needed.
-DATA -> Hugging Face dataset (public ~5TB free), NOT Supabase (500MB chhota).
+DATA -> Hugging Face dataset (public ~5TB free).
 
 ENV (jo mile wo set karo; forge baaki skip kar dega). Comma se multiple keys:
-  HF_TOKEN               (push + hfrouter teacher)   e.g. hf_xxx,hf_yyy
-  CEREBRAS_API_KEY       cloud.cerebras.ai (no card) e.g. csk_a,csk_b
+  HF_TOKEN               (push + hfrouter teacher)
+  CEREBRAS_API_KEY       cloud.cerebras.ai
   OPENROUTER_API_KEY     openrouter.ai
-  GITHUB_MODELS_TOKEN    github PAT (models:read)    -> GitHub Models
+  GH_MODELS_TOKEN_VAL    github PAT (models:read)
+  SAMBANOVA_API_KEY      sambanova.ai/api
+  TOGETHER_API_KEY       api.together.ai
+  DEEPINFRA_API_KEY      deepinfra.com
+  HYPERBOLIC_API_KEY     app.hyperbolic.xyz
+  MISTRAL_API_KEY        console.mistral.ai
+  NVIDIA_NIM_KEY         build.nvidia.com
+  CF_API_TOKEN           Cloudflare Workers AI
+  CF_ACCOUNT_ID          Cloudflare account ID
+  FIREWORKS_API_KEY      fireworks.ai
+  COHERE_API_KEY         cohere.com
+  CHUTES_API_KEY         chutes.ai
+  SCALEWAY_API_KEY       scaleway.com
   DAMRU_DATASET          default Damaru-ai/damru-knowledge
   DAMRU_MAX_ITERS        0=forever ; N=stop after N (CI)
   DAMRU_PUSH_EVERY=40  DAMRU_KEEP_SCORE=4  DAMRU_SLEEP=1.5
@@ -41,18 +55,71 @@ os.makedirs(WORK_DIR, exist_ok=True)
 OUT_JSONL = os.path.join(WORK_DIR, "damru_forge.jsonl")
 SEEN_FILE = os.path.join(WORK_DIR, "seen.txt")
 
-# --- Teachers: OPEN-WEIGHT only (distillation-legal), personal-email providers.
-# NOTE: model catalogs shift; multiple models per provider add resilience.
+# === 15-PROVIDER COUNCIL ===
+# (name, url, env_var, [models])
 SPECS = [
-    ("cerebras",   "https://api.cerebras.ai/v1/chat/completions", "CEREBRAS_API_KEY",
+    # 1. Cerebras -- fastest free inference
+    ("cerebras", "https://api.cerebras.ai/v1/chat/completions", "CEREBRAS_API_KEY",
      ["gpt-oss-120b", "zai-glm-4.7", "gemma-4-31b"]),
+
+    # 2. OpenRouter -- free tier models
     ("openrouter", "https://openrouter.ai/api/v1/chat/completions", "OPENROUTER_API_KEY",
      ["openrouter/free"]),
-    ("github",     "https://models.github.ai/inference/chat/completions", "GITHUB_MODELS_TOKEN",
+
+    # 3. GitHub Models
+    ("github", "https://models.github.ai/inference/chat/completions", "GH_MODELS_TOKEN_VAL",
      ["deepseek/DeepSeek-R1", "meta/Llama-3.3-70B-Instruct"]),
-    ("hfrouter",   "https://router.huggingface.co/v1/chat/completions", "HF_TOKEN",
+
+    # 4. HuggingFace Router
+    ("hfrouter", "https://router.huggingface.co/v1/chat/completions", "HF_TOKEN",
      ["meta-llama/Llama-3.3-70B-Instruct"]),
+
+    # 5. SambaNova -- fast 405B free
+    ("sambanova", "https://api.sambanova.ai/v1/chat/completions", "SAMBANOVA_API_KEY",
+     ["Meta-Llama-3.3-70B-Instruct", "Meta-Llama-3.1-405B-Instruct"]),
+
+    # 6. Together AI
+    ("together", "https://api.together.xyz/v1/chat/completions", "TOGETHER_API_KEY",
+     ["meta-llama/Llama-3.3-70B-Instruct-Turbo", "deepseek-ai/DeepSeek-R1"]),
+
+    # 7. DeepInfra
+    ("deepinfra", "https://api.deepinfra.com/v1/openai/chat/completions", "DEEPINFRA_API_KEY",
+     ["meta-llama/Llama-3.3-70B-Instruct", "mistralai/Mixtral-8x22B-Instruct-v0.1"]),
+
+    # 8. Hyperbolic
+    ("hyperbolic", "https://api.hyperbolic.xyz/v1/chat/completions", "HYPERBOLIC_API_KEY",
+     ["meta-llama/Llama-3.3-70B-Instruct", "deepseek-ai/DeepSeek-R1"]),
+
+    # 9. Mistral AI
+    ("mistral", "https://api.mistral.ai/v1/chat/completions", "MISTRAL_API_KEY",
+     ["mistral-large-latest", "mistral-small-latest"]),
+
+    # 10. NVIDIA NIM
+    ("nvidia", "https://integrate.api.nvidia.com/v1/chat/completions", "NVIDIA_NIM_KEY",
+     ["meta/llama-3.3-70b-instruct", "deepseek-ai/deepseek-r1"]),
+
+    # 11. Fireworks AI
+    ("fireworks", "https://api.fireworks.ai/inference/v1/chat/completions", "FIREWORKS_API_KEY",
+     ["accounts/fireworks/models/llama-v3p3-70b-instruct",
+      "accounts/fireworks/models/deepseek-r1"]),
+
+    # 12. Cohere
+    ("cohere", "https://api.cohere.com/v2/chat", "COHERE_API_KEY",
+     ["command-r-plus", "command-r"]),
+
+    # 13. Chutes AI -- truly free
+    ("chutes", "https://llm.chutes.ai/v1/chat/completions", "CHUTES_API_KEY",
+     ["deepseek-ai/DeepSeek-R1", "unsloth/Llama-3.3-70B-Instruct"]),
+
+    # 14. Scaleway
+    ("scaleway", "https://api.scaleway.ai/v1/chat/completions", "SCALEWAY_API_KEY",
+     ["llama-3.3-70b-instruct", "deepseek-r1"]),
 ]
+# 15. Cloudflare Workers AI (non-standard URL -- handled separately)
+CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID", "")
+CF_API_TOKEN  = os.environ.get("CF_API_TOKEN", "")
+CF_MODELS     = ["@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+                 "@cf/deepseek/deepseek-r1-distill-qwen-32b"]
 
 
 def build_teachers():
@@ -63,7 +130,15 @@ def build_teachers():
             for model in models:
                 teachers.append({"name": f"{name}#{i}:{model.split('/')[-1]}",
                                  "url": url, "key": key, "model": model,
-                                 "cool_until": 0.0, "fails": 0})
+                                 "cool_until": 0.0, "fails": 0, "provider": name})
+    # Cloudflare special URL
+    if CF_ACCOUNT_ID and CF_API_TOKEN:
+        for model in CF_MODELS:
+            cf_url = (f"https://api.cloudflare.com/client/v4/accounts/"
+                      f"{CF_ACCOUNT_ID}/ai/run/{model}")
+            teachers.append({"name": f"cloudflare:0:{model.split('/')[-1]}",
+                             "url": cf_url, "key": CF_API_TOKEN, "model": model,
+                             "cool_until": 0.0, "fails": 0, "provider": "cloudflare"})
     return teachers
 
 
@@ -98,13 +173,34 @@ def mark_fail(t):
 
 
 def _chat(t, messages, max_tokens=1024, temperature=0.8):
+    """Universal chat caller -- handles Cloudflare and Cohere special formats."""
     headers = {"Authorization": "Bearer " + t["key"], "Content-Type": "application/json"}
-    body = {"model": t["model"], "messages": messages,
-            "max_tokens": max_tokens, "temperature": temperature}
-    r = requests.post(t["url"], headers=headers, data=json.dumps(body), timeout=HTTP_TIMEOUT)
-    r.raise_for_status()
-    t["fails"] = 0
-    return r.json()["choices"][0]["message"]["content"].strip()
+
+    if t.get("provider") == "cloudflare":
+        body = {"messages": messages, "max_tokens": max_tokens, "temperature": temperature}
+        r = requests.post(t["url"], headers=headers, data=json.dumps(body), timeout=HTTP_TIMEOUT)
+        r.raise_for_status()
+        t["fails"] = 0
+        return r.json().get("result", {}).get("response", "").strip()
+
+    elif t.get("provider") == "cohere":
+        # Cohere v2 returns message.content[0].text
+        body = {"model": t["model"], "messages": messages,
+                "max_tokens": max_tokens, "temperature": temperature}
+        r = requests.post(t["url"], headers=headers, data=json.dumps(body), timeout=HTTP_TIMEOUT)
+        r.raise_for_status()
+        t["fails"] = 0
+        resp = r.json()
+        return resp["message"]["content"][0]["text"].strip()
+
+    else:
+        # Standard OpenAI-compatible
+        body = {"model": t["model"], "messages": messages,
+                "max_tokens": max_tokens, "temperature": temperature}
+        r = requests.post(t["url"], headers=headers, data=json.dumps(body), timeout=HTTP_TIMEOUT)
+        r.raise_for_status()
+        t["fails"] = 0
+        return r.json()["choices"][0]["message"]["content"].strip()
 
 
 def _norm(s):
@@ -123,7 +219,9 @@ def _load_seen():
 
 
 def gen_instruction(t):
-    domain, aud, evo = random.choice(DOMAINS), random.choice(AUDIENCES), random.choice(EVOLVE)
+    domain = random.choice(DOMAINS)
+    aud = random.choice(AUDIENCES)
+    evo = random.choice(EVOLVE)
     sys_p = ("You are an expert dataset author. Output ONE single high-quality "
              "instruction/question only -- no answer, no preamble, no numbering.")
     user = (f"Write one challenging instruction about '{domain}' aimed at {aud}. "
@@ -154,13 +252,15 @@ def verify(t, instruction, answer):
 
 def push_dataset(path):
     if not HF_TOKEN:
-        print("[warn] no HF_TOKEN -> data saved locally only"); return
+        print("[warn] no HF_TOKEN -> data saved locally only")
+        return
     try:
         from huggingface_hub import HfApi
         api = HfApi(token=HF_TOKEN.split(",")[0].strip())
         api.create_repo(DATASET_REPO, repo_type="dataset", exist_ok=True)
         stamp = time.strftime("%Y%m%d-%H%M%S")
-        api.upload_file(path_or_fileobj=path, path_in_repo=f"forge/damru_forge_{stamp}.jsonl",
+        api.upload_file(path_or_fileobj=path,
+                        path_in_repo=f"forge/damru_forge_{stamp}.jsonl",
                         repo_id=DATASET_REPO, repo_type="dataset")
         print("[push] ->", DATASET_REPO, stamp)
     except Exception as e:
@@ -174,24 +274,32 @@ def safe(fn, *a):
         return fn(*a)
     except requests.HTTPError as e:
         code = getattr(e.response, "status_code", 0)
-        print(f"  http {code} on {t['name']}"); mark_fail(t)
+        print(f"  http {code} on {t['name']}")
+        mark_fail(t)
         if code == 429:
             t["cool_until"] = time.time() + COOLDOWN
         return None
     except Exception as e:
-        print("  err", t["name"], str(e)[:120]); mark_fail(t); return None
+        print("  err", t["name"], str(e)[:120])
+        mark_fail(t)
+        return None
 
 
 def main():
     teachers = build_teachers()
     if not teachers:
-        print("NO API KEYS. Set CEREBRAS_API_KEY / OPENROUTER_API_KEY / "
-              "GITHUB_MODELS_TOKEN / HF_TOKEN (comma-separate multiples).")
+        print("NO API KEYS FOUND. Set any of:\n"
+              "  CEREBRAS_API_KEY, OPENROUTER_API_KEY, GH_MODELS_TOKEN_VAL, HF_TOKEN,\n"
+              "  SAMBANOVA_API_KEY, TOGETHER_API_KEY, DEEPINFRA_API_KEY, HYPERBOLIC_API_KEY,\n"
+              "  MISTRAL_API_KEY, NVIDIA_NIM_KEY, CF_API_TOKEN+CF_ACCOUNT_ID,\n"
+              "  FIREWORKS_API_KEY, COHERE_API_KEY, CHUTES_API_KEY, SCALEWAY_API_KEY")
         sys.exit(1)
-    print("Teachers loaded:", len(teachers), "->", sorted({t['name'] for t in teachers}))
+    print(f"[Damru Forge] {len(teachers)} teacher slots loaded:")
+    for t in teachers:
+        print(f"  + {t['name']}")
     seen = _load_seen()
     made, it = 0, 0
-    fout = open(OUT_JSONL, "a", encoding="utf-8")
+    fout  = open(OUT_JSONL, "a", encoding="utf-8")
     fseen = open(SEEN_FILE, "a", encoding="utf-8")
     while True:
         it += 1
@@ -200,8 +308,12 @@ def main():
         pool = healthy(teachers)
         if not pool:
             nap = 30
-            print(f"  all teachers cooling -> sleep {nap}s"); time.sleep(nap); continue
-        tq, ta, tv = random.choice(pool), random.choice(pool), random.choice(pool)
+            print(f"  all teachers cooling -> sleep {nap}s")
+            time.sleep(nap)
+            continue
+        tq = random.choice(pool)
+        ta = random.choice(pool)
+        tv = random.choice(pool)
         q = safe(gen_instruction, tq)
         if not q or len(q) < 12:
             continue
@@ -213,19 +325,27 @@ def main():
             continue
         score = safe(verify, tv, q, a) or 0
         if score < KEEP_SCORE:
-            print(f"  drop (score {score}) :: {q[:60]}"); continue
-        rec = {"messages": [{"role": "user", "content": q},
-                            {"role": "assistant", "content": a}],
-               "instruction": q, "output": a, "score": score,
-               "teacher_q": tq["model"], "teacher_a": ta["model"], "ts": time.time()}
-        fout.write(json.dumps(rec, ensure_ascii=False) + "\n"); fout.flush()
-        fseen.write(h + "\n"); fseen.flush(); seen.add(h)
+            print(f"  drop (score {score}) :: {q[:60]}")
+            continue
+        rec = {
+            "messages": [{"role": "user", "content": q},
+                         {"role": "assistant", "content": a}],
+            "instruction": q, "output": a, "score": score,
+            "teacher_q": tq["model"], "teacher_a": ta["model"],
+            "ts": time.time()
+        }
+        fout.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        fout.flush()
+        fseen.write(h + "\n")
+        fseen.flush()
+        seen.add(h)
         made += 1
         print(f"[{made}] score {score} | {ta['name']} | {q[:66]}")
         if made % PUSH_EVERY == 0:
             push_dataset(OUT_JSONL)
         time.sleep(float(os.environ.get("DAMRU_SLEEP", "1.5")))
-    fout.close(); fseen.close()
+    fout.close()
+    fseen.close()
     if made:
         push_dataset(OUT_JSONL)
     print(f"\nDONE. {made} quality examples this run -> {OUT_JSONL}")
