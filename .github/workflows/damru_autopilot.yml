@@ -1,1 +1,160 @@
-IyA9PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0KIyBEQU1SVSBBVVRPUElMT1QgdjMg4oCUIEZJWEVEICsgVVBHUkFERUQKIyBGaWxlOiAuZ2l0aHViL3dvcmtmbG93cy9kYW1ydV9hdXRvcGlsb3QueW1sCiMKIyBGSVhFUzoKIyAgIFsxXSBHSVRIVUJfKiBlbnYgdmFyIHByZWZpeCBiYW4g4oaSIHJlbmFtZWQgdG8gR0hfTU9ERUxTX1RPS0VOX1ZBTAojICAgWzJdIFNlY3JldCBuYW1lIG1pc21hdGNoIGZpeGVkOiBPUEVOUk9VVEVSX0tFWSDigJIgY29uc2lzdGVudAojICAgWzNdIEpvYiBjb25kaXRpb24gc3ludGF4IGhhcmRlbmVkIChHaXRIdWIgZXhwcmVzc2lvbiwgbm90IHJhdyBzdHJpbmcpCiMgICBbNF0gQWRkZWQgbmV3IHByb3ZpZGVyIGtleXM6IENGLCBHcm9xLCBOVklESUEgTklNLCBNaXN0cmFsCiMgICBbNV0gTXVsdGkta2V5IHJvdGF0aW9uIHZpYSBjb21tYS1saXN0cyAoQVBJX0tFWV9QT09MIHBhdHRlcm4pCiMgICBbNl0gUmV0cnkgbG9naWMgKyBlcnJvci1jb250aW51ZSBzbyBvbmUgYmFkIGtleSBuZXZlciBraWxscyBydW4KIyAgIFs3XSA2LXByb3ZpZGVyIGNvdW5jaWwgcm91dGVyCiMgICBbOF0gUmVtb3ZlZCA4NTQgZHVwbGljYXRlIGNyb24gdHJpZ2dlcnMg4oaSIDEgZm9yZ2UgKyAxIHRyYWluCiMKIyBTRUNSRVRTIG5lZWRlZCAoU2V0dGluZ3Mg4oaSIFNlY3JldHMgYW5kIHZhcmlhYmxlcyDihpIgQWN0aW9ucyk6CiMgICBIRl9UT0tFTiAgICAgICAgICAgICAg4oaQIGFscmVhZHkgc2V0IOKchQojICAgR1JPUV9BUElfS0VZICAgICAgICAgIOKGkCBORVcgKGNvbnNvbGUuZ3JvcS5jb20g4oaSIGZyZWUpCiMgICBDRl9BQ0NPVU5UX0lEICAgICAgICDihpAgTkVXIChkYXNoLmNsb3VkZmxhcmUuY29tKQojICAgQ0ZfQVBJX1RPS0VOICAgICAgICAgIOKGkCBORVcgKGNsb3VkZmxhcmUuY29tIOKGkiBBSSDigJIgQVBJIFRva2VucykKIyAgIE5WSURJQV9OSU1fS0VZICAgICAgICDihpAgTkVXIChidWlsZC5udmlkaWEuY29tIOKGkiBHZXQgQVBJIEtleSkKIyAgIE1JU1RSQUxfQVBJX0tFWSAgICAgICDihpAgTkVXIChjb25zb2xlLm1pc3RyYWwuYWkg4oaSIGZyZWUgRXhwZXJpbWVudCkKIyAgIEdFTUlOSV9LRVkgICAgICAgICAgICDihpAgYWxyZWFkeSBzZXQg4pyFIChqdWRnZSBvbmx5KQojICAgT1BFTlJPVVRFUl9LRVkgICAgICAgIOKGkCBhbHJlYWR5IHNldCDinIUKIyAgIENFUkVCUkFTX0FQSV9LRVkgICAgICDihpAgYWxyZWFkeSBzZXQg4pyFCiMgICBHSF9NT0RFTFNfVE9LRU4gICAgICAgIOKGkCBhbHJlYWR5IHNldCDinIUgKHJlbmFtZWQgaW4gZW52IGJlbG93KQojICAgS0FHR0xFX1VTRVJOQU1FICAgICAgIOKGkCBhbHJlYWR5IHNldCDinIUgKHNpbmdsZSkKIyAgIEtBR0dMRV9LRVkgICAgICAgICAgICDihpAgYWxyZWFkeSBzZXQg4pyFIChzaW5nbGUpCiMgICBLQUdHTEVfVVNFUk5BTUVTICAgICAgIOKGkCBleHRlbmQgdG8gNSBhY2NvdW50cyAoY29tbWEgbGlzdCkKIyAgIEtBR0dMRV9LRVlTICAgICAgICAgICDihpAgZXh0ZW5kIHRvIDUgYWNjb3VudHMgKGNvbW1hIGxpc3QpCiMgPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09CgpuYW1lOiBkYW1ydS1hdXRvcGlsb3QKCm9uOgogIHNjaGVkdWxlOgogICAgLSBjcm9uOiAiMCAqLzIgKiAqICoiICAgICMgRk9SR0U6IGhhciAyIGdoYW50ZSwgMjQvNwogICAgLSBjcm9uOiAiMzAgMyAqICogKiIgICAgICMgVFJBSU46IGRhaWx5IDA5OjAwIElTVAogIHdvcmtmbG93X2Rpc3BhdGNoOgogICAgaW5wdXRzOgogICAgICBqb2I6CiAgICAgICAgZGVzY3JpcHRpb246ICJLb25zYSBqb2IgcnVuIGthcm5hIGhhaSIKICAgICAgICBkZWZhdWx0OiAiZm9yZ2UiCiAgICAgICAgdHlwZTogY2hvaWNlCiAgICAgICAgb3B0aW9uczogW2ZvcmdlLCB0cmFpbl0KCmNvbmN1cnJlbmN5OgogIGdyb3VwOiBkYW1ydS1hdXRvcGlsb3QtJHt7IGdpdGh1Yi5yZWYgfX0KICBjYW5jZWwtaW4tcHJvZ3Jlc3M6IGZhbHNlCgpqb2JzOgogIGZvcmdlOgogICAgaWY6ID4KICAgICAgZ2l0aHViLmV2ZW50X25hbWUgPT0gJ3dvcmtmbG93X2Rpc3BhdGNoJyAmJiBnaXRodWIuZXZlbnQuaW5wdXRzLmpvYiA9PSAnZm9yZ2UnCiAgICAgIHx8IGdpdGh1Yi5ldmVudC5zY2hlZHVsZSA9PSAnMCAqLzIgKiAqIConCiAgICBydW5zLW9uOiB1YnVudHUtbGF0ZXN0CiAgICB0aW1lb3V0LW1pbnV0ZXM6IDU1CiAgICBjb250aW51ZS1vbi1lcnJvcjogZmFsc2UKCiAgICBzdGVwczoKICAgICAgLSBuYW1lOiBDaGVja291dCByZXBvCiAgICAgICAgdXNlczogYWN0aW9ucy9jaGVja291dEB2NAoKICAgICAgLSBuYW1lOiBTZXR1cCBQeXRob24gMy4xMQogICAgICAgIHVzZXM6IGFjdGlvbnMvc2V0dXAtcHl0aG9uQHY1CiAgICAgICAgd2l0aDoKICAgICAgICAgIHB5dGhvbi12ZXJzaW9uOiAiMy4xMSIKICAgICAgICAgIGNhY2hlOiBwaXAKCiAgICAgIC0gbmFtZTogSW5zdGFsbCBkZXBzCiAgICAgICAgcnVuOiB8CiAgICAgICAgICBwaXAgaW5zdGFsbCAtcSByZXF1ZXN0cyBodWdnaW5nZmFjZV9odWIgZGF0YXNldHMgdHFkbQoKICAgICAgLSBuYW1lOiBGb3JnZSBxdWFsaXR5IGRhdGEgKENvdW5jaWwgdjMgLSA2IHByb3ZpZGVycykKICAgICAgICBlbnY6CiAgICAgICAgICBIRl9UT0tFTjogICAgICAgICAgICAgICR7eyBzZWNyZXRzLkhGX1RPS0VOIH19CiAgICAgICAgICBHUk9RX0FQSV9LRVk6ICAgICAgICAgICR7eyBzZWNyZXRzLkdST1FfQVBJX0tFWSB9fQogICAgICAgICAgQ0ZfQUNDT1VOVF9JRDogICAgICAgICAkeyR7IHNlY3JldHMuQ0ZfQUNDT1VOVF9JRCB9fQogICAgICAgICAgQ0ZfQVBJX1RPS0VOOiAgICAgICAgICAkeyR7IHNlY3JldHMuQ0ZfQVBJX1RPS0VOIH19CiAgICAgICAgICBOVklESUFfTklNX0tFWTogICAgICAgICR7eyBzZWNyZXRzLk5WSURJQV9OSU1fS0VZIH19CiAgICAgICAgICBNSVNUUkFMX0FQSV9LRVk6ICAgICAgICR7eyBzZWNyZXRzLk1JU1RSQUxfQVBJX0tFWSB9fQogICAgICAgICAgR0VNSU5JX0tFWTogICAgICAgICAgICAkeyR7IHNlY3JldHMuR0VNSU5JX0tFWSB9fQogICAgICAgICAgQ0VSRUJSQVNfQVBJX0tFWTogICAgICAkeyR7IHNlY3JldHMuQ0VSRUJSQVNfQVBJX0tFWSB9fQogICAgICAgICAgT1BFTlJPVVRFUl9BUElfS0VZOiAgICAkeyR7IHNlY3JldHMuT1BFTlJPVVRFUl9LRVkgfX0KICAgICAgICAgIEdIX01PREVMU19UT0tFTl9WQUw6ICAgJHt7IHNlY3JldHMuR0hfTU9ERUxTX1RPS0VOIH19CiAgICAgICAgICBEQU1SVV9EQVRBU0VUOiAgICAgICAgIERhbWFydS1haS9kYW1ydS1rbm93bGVkZ2UKICAgICAgICAgIERBTVJVX01BWF9JVEVSUzogICAgICAgIjEyMDAiCiAgICAgICAgICBEQU1SVV9QVVNIX0VWRVJZOiAgICAgICI0MCIKICAgICAgICAgIERBTVJVX0tFRVBfU0NPUkU6ICAgICAgIjQiCiAgICAgICAgICBEQU1SVV9TS0lQX01JU1NJTkc6ICAgICIxIgogICAgICAgIHJ1bjogfAogICAgICAgICAgZWNobyAiW0ZvcmdlXSBTdGFydGluZyB3aXRoIENvdW5jaWwgdjMgcHJvdmlkZXJzLi4uIgogICAgICAgICAgcHl0aG9uIC0gPDwnUFlFT0YnCiAgICAgICAgICBpbXBvcnQgb3MKICAgICAgICAgIHByb3ZpZGVycyA9IHsKICAgICAgICAgICAgICAiR3JvcSI6ICAgICAgICBib29sKG9zLmVudmlyb24uZ2V0KCJHUU9RX0FQSV9LRVkiKSksCiAgICAgICAgICAgICAgIkNsb3VkZmxhcmUiOiAgYm9vbChvcy5lbnZpcm9uLmdldCgiQ0ZfQVBJX1RPS0VOIikpLAogICAgICAgICAgICAgICJOVklESUEgTklNIjogIGJvb2wob3MuZW52aXJvbi5nZXQoIk5WSURJQV9OSU1fS0VZIikpLAogICAgICAgICAgICAgICJNaXN0cmFsIjogICAgIGJvb2wob3MuZW52aXJvbi5nZXQoIk1JU1RSQUxfQVBJX0tFWSIpKSwKICAgICAgICAgICAgICAiR2VtaW5pIjogICAgICBib29sKG9zLmVudmlyb24uZ2V0KCJHRU1JTklfS0VZIikpLAogICAgICAgICAgICAgICJDZXJlYnJhcyI6ICAgIGJvb2wob3MuZW52aXJvbi5nZXQoIkNFUkVCUkFTX0FQSV9LRVkiKSksCiAgICAgICAgICAgICAgIk9wZW5Sb3V0ZXIiOiAgYm9vbChvcy5lbnZpcm9uLmdldCgiT1BFTlJPVVRFUl9BUElfS0VZIikpLAogICAgICAgICAgICAgICJHSCBNb2RlbHMiOiAgIGJvb2wob3MuZW52aXJvbi5nZXQoIkdIX01PREVMU19UT0tFTl9WQUwiKSksCiAgICAgICAgICB9CiAgICAgICAgICBhY3RpdmUgPSBbayBmb3Igayx2IGluIHByb3ZpZGVycy5pdGVtcygpIGlmIHZdCiAgICAgICAgICBtaXNzaW5nID0gW2sgZm9yIGssdiBpbiBwcm92aWRlcnMuaXRlbXMoKSBpZiBub3Qgdl0KICAgICAgICAgIHByaW50KGYiQWN0aXZlIHByb3ZpZGVycyAoe2xlbihhY3RpdmUpfSk6IHsnLCAnLmpvaW4oYWN0aXZlKX0iKQogICAgICAgICAgaWYgbWlzc2luZzoKICAgICAgICAgICAgICBwcmludChmIk1pc3Npbmcgd2lsbCBza2lwOiB7JywgJy5qb2luKG1pc3NpbmcpfSIpCiAgICAgICAgICBQWUVPRgogICAgICAgICAgcHl0aG9uIGRhbXJ1X2RhdGFfZm9yZ2UucHkKCiAgICAgIC0gbmFtZTogVXBsb2FkIGZvcmdlIGxvZyBvbiBmYWlsdXJlCiAgICAgICAgaWY6IGZhaWx1cmUoKQogICAgICAgIHVzZXM6IGFjdGlvbnMvdXBsb2FkLWFydGlmYWN0QHY0CiAgICAgICAgd2l0aDoKICAgICAgICAgIG5hbWU6IGZvcmdlLWVycm9yLWxvZy0keyR7IGdpdGh1Yi5ydW5fbnVtYmVyIH19CiAgICAgICAgICBwYXRoOiBlcnJvcnMubG9nCiAgICAgICAgICByZXRlbnRpb24tZGF5czogNwoKICB0cmFpbjoKICAgIGlmOiA+CiAgICAgIGdpdGh1Yi5ldmVudF9uYW1lID09ICd3b3JrZmxvd19kaXNwYXRjaCcgJiYgZ2l0aHViLmV2ZW50LmlucHV0cy5qb2IgPT0gJ3RyYWluJwogICAgICB8fCBnaXRodWIuZXZlbnQuc2NoZWR1bGUgPT0gJzMwIDMgKiAqIConCiAgICBydW5zLW9uOiB1YnVudHUtbGF0ZXN0CiAgICB0aW1lb3V0LW1pbnV0ZXM6IDE1CgogICAgc3RlcHM6CiAgICAgIC0gbmFtZTogQ2hlY2tvdXQgcmVwbwogICAgICAgIHVzZXM6IGFjdGlvbnMvY2hlY2tvdXRAdjQKCiAgICAgIC0gbmFtZTogU2V0dXAgUHl0aG9uIDMuMTEKICAgICAgICB1c2VzOiBhY3Rpb25zL3NldHVwLXB5dGhvbkB2NQogICAgICAgIHdpdGg6CiAgICAgICAgICBweXRob24tdmVyc2lvbjogIjMuMTEiCgogICAgICAtIG5hbWU6IEluc3RhbGwgS2FnZ2xlIENMSQogICAgICAgIHJ1bjogcGlwIGluc3RhbGwgLXEga2FnZ2xlCgogICAgICAtIG5hbWU6IFRyaWdnZXIgS2FnZ2xlIHNlbGYtdHJhaW5pbmcgKDUtYWNjb3VudCByb3RhdGlvbikKICAgICAgICBlbnY6CiAgICAgICAgICBLQUdHTEVfVVNFUk5BTUU6ICAgJHt7IHNlY3JldHMuS0FHR0xFX1VTRVJOQU1FIH19CiAgICAgICAgICBLQUdHTEVfS0VZOiAgICAgICAgJHt7IHNlY3JldHMuS0FHR0xFX0tFWSB9fQogICAgICAgICAgS0FHR0xFX1VTRVJOQU1FUzogICR7eyBzZWNyZXRzLktBR0dMRV9VU0VSTkFNRVMgfX0KICAgICAgICAgIEtBR0dMRV9LRVlTOiAgICAgICAkeyR7IHNlY3JldHMuS0FHR0xFX0tFWVMgfX0KICAgICAgICAgIEhGX1RPS0VOOiAgICAgICAgICAkeyR7IHNlY3JldHMuSEZfVE9LRU4gfX0KICAgICAgICBydW46IHwKICAgICAgICAgIGVjaG8gIltUcmFpbl0gVHJpZ2dlcmluZyBLYWdnbGUgQnJhaW4gRm9yZ2UuLi4iCiAgICAgICAgICBweXRob24gZGFtcnVfa2FnZ2xlX3RyaWdnZXIucHkKCiAgICAgIC0gbmFtZTogTG9nIHN1Y2Nlc3MKICAgICAgICBydW46IGVjaG8gIltUcmFpbl0gS2FnZ2xlIHRyaWdnZXIgZGlzcGF0Y2hlZCBzdWNjZXNzZnVsbHkgYXQgJChkYXRlIC11KSIK
+# ===========================================================================
+# DAMRU AUTOPILOT v4 — 15-PROVIDER COUNCIL
+# File: .github/workflows/damru_autopilot.yml
+#
+# FIXES:
+#   [1] GITHUB_* env var prefix ban → renamed to GH_MODELS_TOKEN_VAL
+#   [2] Secret name mismatch fixed: OPENROUTER_KEY → consistent
+#   [3] Job condition syntax hardened
+#   [4] 15-provider council: all free API keys wired
+#   [5] DAMRU_SKIP_MISSING=1 — no crash on missing key
+#   [6] Artifact upload on failure
+#
+# SECRETS needed (Settings → Secrets and variables → Actions):
+#   HF_TOKEN, CEREBRAS_API_KEY, OPENROUTER_KEY, GH_MODELS_TOKEN
+#   SAMBANOVA_API_KEY, TOGETHER_API_KEY, DEEPINFRA_API_KEY
+#   HYPERBOLIC_API_KEY, MISTRAL_API_KEY, NVIDIA_NIM_KEY
+#   CF_ACCOUNT_ID, CF_API_TOKEN
+#   FIREWORKS_API_KEY, COHERE_API_KEY, CHUTES_API_KEY, SCALEWAY_API_KEY
+#   GEMINI_KEY, KAGGLE_USERNAME, KAGGLE_KEY, KAGGLE_USERNAMES, KAGGLE_KEYS
+# ===========================================================================
+
+name: damru-autopilot
+
+on:
+  schedule:
+    - cron: "0 */2 * * *"   # FORGE: har 2 ghante, 24/7
+    - cron: "30 3 * * *"    # TRAIN: daily 09:00 IST
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Konsa job run karna hai"
+        default: "forge"
+        type: choice
+        options: [forge, train]
+
+concurrency:
+  group: damru-autopilot-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  forge:
+    if: >
+      github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'forge'
+      || github.event.schedule == '0 */2 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    continue-on-error: false
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        run: |
+          pip install -q requests huggingface_hub datasets tqdm
+
+      - name: Forge quality data (15-Provider Council)
+        env:
+          # Core
+          HF_TOKEN:             ${{ secrets.HF_TOKEN }}
+          GEMINI_KEY:           ${{ secrets.GEMINI_KEY }}
+          CEREBRAS_API_KEY:     ${{ secrets.CEREBRAS_API_KEY }}
+          # OpenRouter — secret name is OPENROUTER_KEY, code expects OPENROUTER_API_KEY
+          OPENROUTER_API_KEY:   ${{ secrets.OPENROUTER_KEY }}
+          # GitHub Models — secret name is GH_MODELS_TOKEN, code expects GH_MODELS_TOKEN_VAL
+          GH_MODELS_TOKEN_VAL:  ${{ secrets.GH_MODELS_TOKEN }}
+          # New providers
+          SAMBANOVA_API_KEY:    ${{ secrets.SAMBANOVA_API_KEY }}
+          TOGETHER_API_KEY:     ${{ secrets.TOGETHER_API_KEY }}
+          DEEPINFRA_API_KEY:    ${{ secrets.DEEPINFRA_API_KEY }}
+          HYPERBOLIC_API_KEY:   ${{ secrets.HYPERBOLIC_API_KEY }}
+          MISTRAL_API_KEY:      ${{ secrets.MISTRAL_API_KEY }}
+          NVIDIA_NIM_KEY:       ${{ secrets.NVIDIA_NIM_KEY }}
+          CF_ACCOUNT_ID:        ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN:         ${{ secrets.CF_API_TOKEN }}
+          FIREWORKS_API_KEY:    ${{ secrets.FIREWORKS_API_KEY }}
+          COHERE_API_KEY:       ${{ secrets.COHERE_API_KEY }}
+          CHUTES_API_KEY:       ${{ secrets.CHUTES_API_KEY }}
+          SCALEWAY_API_KEY:     ${{ secrets.SCALEWAY_API_KEY }}
+          # Forge config
+          DAMRU_DATASET:        Damaru-ai/damru-knowledge
+          DAMRU_MAX_ITERS:      "1200"
+          DAMRU_PUSH_EVERY:     "40"
+          DAMRU_KEEP_SCORE:     "4"
+          DAMRU_SKIP_MISSING:   "1"
+        run: |
+          echo "[Forge] Starting with 15-Provider Council..."
+          python - <<'PYEOF'
+          import os
+          providers = {
+              "Cerebras":    bool(os.environ.get("CEREBRAS_API_KEY")),
+              "OpenRouter":  bool(os.environ.get("OPENROUTER_API_KEY")),
+              "GH Models":   bool(os.environ.get("GH_MODELS_TOKEN_VAL")),
+              "HF Router":   bool(os.environ.get("HF_TOKEN")),
+              "SambaNova":   bool(os.environ.get("SAMBANOVA_API_KEY")),
+              "Together":    bool(os.environ.get("TOGETHER_API_KEY")),
+              "DeepInfra":   bool(os.environ.get("DEEPINFRA_API_KEY")),
+              "Hyperbolic":  bool(os.environ.get("HYPERBOLIC_API_KEY")),
+              "Mistral":     bool(os.environ.get("MISTRAL_API_KEY")),
+              "NVIDIA NIM":  bool(os.environ.get("NVIDIA_NIM_KEY")),
+              "Cloudflare":  bool(os.environ.get("CF_API_TOKEN")),
+              "Fireworks":   bool(os.environ.get("FIREWORKS_API_KEY")),
+              "Cohere":      bool(os.environ.get("COHERE_API_KEY")),
+              "Chutes":      bool(os.environ.get("CHUTES_API_KEY")),
+              "Scaleway":    bool(os.environ.get("SCALEWAY_API_KEY")),
+          }
+          active  = [k for k,v in providers.items() if v]
+          missing = [k for k,v in providers.items() if not v]
+          print(f"Active providers ({len(active)}): {', '.join(active)}")
+          if missing:
+              print(f"Missing (will skip): {', '.join(missing)}")
+          PYEOF
+          python damru_data_forge.py
+
+      - name: Upload forge log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-error-log-${{ github.run_number }}
+          path: errors.log
+          retention-days: 7
+
+  train:
+    if: >
+      github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'train'
+      || github.event.schedule == '30 3 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Kaggle CLI
+        run: pip install -q kaggle
+
+      - name: Trigger Kaggle self-training (5-account rotation)
+        env:
+          KAGGLE_USERNAME:  ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY:       ${{ secrets.KAGGLE_KEY }}
+          KAGGLE_USERNAMES: ${{ secrets.KAGGLE_USERNAMES }}
+          KAGGLE_KEYS:      ${{ secrets.KAGGLE_KEYS }}
+          HF_TOKEN:         ${{ secrets.HF_TOKEN }}
+        run: |
+          echo "[Train] Triggering Kaggle Brain Forge..."
+          python damru_kaggle_trigger.py
+
+      - name: Log success
+        run: echo "[Train] Kaggle trigger dispatched successfully at $(date -u)"
