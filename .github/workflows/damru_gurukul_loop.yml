@@ -1,14 +1,9 @@
 # ==============================================================================
 # DAMRU GURUKUL LOOP  --  24/7 self-learning brain (GitHub Actions)
 # ------------------------------------------------------------------------------
-# Closed loop, fully automatic, NO PC / NO phone-on needed:
-#   * gurukul job (every 3h) : self-play RLVR data forge on GitHub CPU runner.
-#   * train  job (daily)     : triggers GRPO training on Kaggle GPU.
-# Public repo => unlimited free Actions minutes.
-#
-# Repo Settings > Secrets and variables > Actions  (add these):
-#   HF_TOKEN, CEREBRAS_API_KEY, OPENROUTER_API_KEY, GITHUB_MODELS_TOKEN,
-#   KAGGLE_USERNAME, KAGGLE_KEY   (optionally OWN_MODEL to close the loop)
+# FIXES:
+#   [1] GITHUB_MODELS_TOKEN -> GH_MODELS_TOKEN_VAL (GitHub bans GITHUB_* prefix)
+#   [2] OPENROUTER_KEY secret name consistent
 # ==============================================================================
 name: Damru Gurukul Loop
 
@@ -57,7 +52,8 @@ jobs:
           OWN_MODEL: ${{ secrets.OWN_MODEL }}
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_KEY }}
-          GITHUB_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+          # FIX: GitHub Actions blocks GITHUB_* prefix vars — renamed to GH_MODELS_TOKEN_VAL
+          GH_MODELS_TOKEN_VAL: ${{ secrets.GH_MODELS_TOKEN }}
           DAMRU_DATASET: Damaru-ai/damru-gurukul
           DAMRU_GROUP_SIZE: "6"
           DAMRU_PUSH_EVERY: "20"

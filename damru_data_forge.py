@@ -1,395 +1,505 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-DAMRU DATA FORGE  --  24/7 self-switching quality-data engine
-=============================================================
-v2 FIXES:
-  [1] cerebras: gpt-oss-120b -> llama-3.3-70b (correct free model)
-  [2] openrouter: 'openrouter/free' -> real free model names
-  [3] github: removed DeepSeek-R1 (403 forbidden)
-  [4] nvidia: removed deepseek-r1 (404 not found)
-  [5] cohere: updated model names + fixed response parsing
-  [6] chutes: fixed model names
-  [7] timeout: 90s -> 30s (nvidia was hanging 90s)
-  [8] cooldown: 300s -> 180s (faster recovery)
-  [9] scaleway: fixed model names
+================================================================================
+ DAMRU DATA FORGE  --  15-Provider Knowledge Data Engine
+================================================================================
+Damru Autopilot ke liye knowledge/QA/instruction data generate karta hai.
+Har 2 ghante GitHub Actions par chalta hai -> HF dataset me push karta hai.
 
-SELF-SWITCHING: multiple providers + multiple keys (comma-separated).
-15-PROVIDER COUNCIL: Cerebras, OpenRouter, GitHub Models, HF Router,
-  SambaNova, Together, DeepInfra, Hyperbolic, Mistral, NVIDIA NIM,
-  Cloudflare AI, Fireworks, Cohere, Chutes, Scaleway
+Self-healing design:
+  - 15 providers, rotation + cooldown
+  - DAMRU_SKIP_MISSING=1 => missing key pe crash nahi
+  - Dedup by hash, resume-safe
+  - Time budget se clean exit
 
-RUNS on ANY free cloud CPU (GitHub Actions cron / HF Space) -- NO GPU needed.
-DATA -> Hugging Face dataset (public ~5TB free).
+ENV:
+  HF_TOKEN             (required) HuggingFace write token
+  DAMRU_DATASET        default 'Damaru-ai/damru-knowledge'
+  DAMRU_MAX_ITERS      default 1200 (0 = unlimited)
+  DAMRU_PUSH_EVERY     default 40
+  DAMRU_KEEP_SCORE     default 4 (min score to keep, out of 10)
+  DAMRU_SKIP_MISSING   default 1 (1 = skip providers with no key, 0 = fail)
+
+PROVIDERS (all optional but at least 1 needed):
+  CEREBRAS_API_KEY, OPENROUTER_API_KEY, GH_MODELS_TOKEN_VAL,
+  SAMBANOVA_API_KEY, TOGETHER_API_KEY, DEEPINFRA_API_KEY,
+  HYPERBOLIC_API_KEY, MISTRAL_API_KEY, NVIDIA_NIM_KEY,
+  CF_ACCOUNT_ID + CF_API_TOKEN, FIREWORKS_API_KEY,
+  COHERE_API_KEY, CHUTES_API_KEY, SCALEWAY_API_KEY, HF_TOKEN (HF router)
+================================================================================
 """
-import os, sys, json, time, re, random, hashlib
+import os
+import re
+import sys
+import json
+import time
+import random
+import hashlib
+import traceback
+from datetime import datetime, timezone
 
 try:
     import requests
-except Exception:
-    os.system(sys.executable + " -m pip install -q requests huggingface_hub")
-    import requests
+except ImportError:
+    print("[FATAL] pip install requests", flush=True)
+    raise
 
-HF_TOKEN     = os.environ.get("HF_TOKEN", "")
-DATASET_REPO = os.environ.get("DAMRU_DATASET", "Damaru-ai/damru-knowledge")
-MAX_ITERS    = int(os.environ.get("DAMRU_MAX_ITERS", "0"))
-PUSH_EVERY   = int(os.environ.get("DAMRU_PUSH_EVERY", "40"))
-KEEP_SCORE   = int(os.environ.get("DAMRU_KEEP_SCORE", "4"))
-HTTP_TIMEOUT = int(os.environ.get("DAMRU_HTTP_TIMEOUT", "30"))   # FIX: was 90
-WORK_DIR     = os.environ.get("DAMRU_WORKDIR", "/tmp/damru_forge")
-COOLDOWN     = int(os.environ.get("DAMRU_COOLDOWN", "180"))      # FIX: was 300
-os.makedirs(WORK_DIR, exist_ok=True)
-OUT_JSONL = os.path.join(WORK_DIR, "damru_forge.jsonl")
-SEEN_FILE = os.path.join(WORK_DIR, "seen.txt")
-
-# =============================================================================
-# 15-PROVIDER COUNCIL  (name, url, env_var, [models])
-# FIX: corrected all broken model names based on HTTP errors
-# =============================================================================
-SPECS = [
-    # 1. Cerebras -- FIX: was gpt-oss-120b (402) -> llama-3.3-70b (free)
-    ("cerebras", "https://api.cerebras.ai/v1/chat/completions", "CEREBRAS_API_KEY",
-     ["llama-3.3-70b", "llama3.1-70b"]),
-
-    # 2. OpenRouter -- FIX: 'openrouter/free' is not a model name!
-    ("openrouter", "https://openrouter.ai/api/v1/chat/completions", "OPENROUTER_API_KEY",
-     ["meta-llama/llama-3.3-70b-instruct:free",
-      "mistralai/mistral-7b-instruct:free",
-      "google/gemma-3-27b-it:free"]),
-
-    # 3. GitHub Models -- FIX: DeepSeek-R1 gives 403, removed
-    ("github", "https://models.github.ai/inference/chat/completions", "GH_MODELS_TOKEN_VAL",
-     ["meta/Llama-3.3-70B-Instruct",
-      "mistral-ai/Mistral-Large-2411"]),
-
-    # 4. HuggingFace Router (works with HF_TOKEN)
-    ("hfrouter", "https://router.huggingface.co/v1/chat/completions", "HF_TOKEN",
-     ["meta-llama/Llama-3.3-70B-Instruct",
-      "mistralai/Mixtral-8x7B-Instruct-v0.1"]),
-
-    # 5. SambaNova -- fast free inference
-    ("sambanova", "https://api.sambanova.ai/v1/chat/completions", "SAMBANOVA_API_KEY",
-     ["Meta-Llama-3.3-70B-Instruct",
-      "Meta-Llama-3.1-405B-Instruct"]),
-
-    # 6. Together AI -- FIX: kept only working model
-    ("together", "https://api.together.xyz/v1/chat/completions", "TOGETHER_API_KEY",
-     ["meta-llama/Llama-3.3-70B-Instruct-Turbo",
-      "mistralai/Mixtral-8x7B-Instruct-v0.1"]),
-
-    # 7. DeepInfra -- may 402 if credits gone
-    ("deepinfra", "https://api.deepinfra.com/v1/openai/chat/completions", "DEEPINFRA_API_KEY",
-     ["meta-llama/Llama-3.3-70B-Instruct",
-      "mistralai/Mixtral-8x22B-Instruct-v0.1"]),
-
-    # 8. Hyperbolic -- may 401 if key expired
-    ("hyperbolic", "https://api.hyperbolic.xyz/v1/chat/completions", "HYPERBOLIC_API_KEY",
-     ["meta-llama/Llama-3.3-70B-Instruct"]),
-
-    # 9. Mistral AI
-    ("mistral", "https://api.mistral.ai/v1/chat/completions", "MISTRAL_API_KEY",
-     ["mistral-large-latest", "mistral-small-latest"]),
-
-    # 10. NVIDIA NIM -- FIX: removed deepseek-r1 (404)
-    ("nvidia", "https://integrate.api.nvidia.com/v1/chat/completions", "NVIDIA_NIM_KEY",
-     ["meta/llama-3.3-70b-instruct"]),
-
-    # 11. Fireworks AI
-    ("fireworks", "https://api.fireworks.ai/inference/v1/chat/completions", "FIREWORKS_API_KEY",
-     ["accounts/fireworks/models/llama-v3p3-70b-instruct"]),
-
-    # 12. Cohere -- FIX: updated model names (2025)
-    ("cohere", "https://api.cohere.com/v2/chat", "COHERE_API_KEY",
-     ["command-r-plus-08-2024", "command-r-08-2024"]),
-
-    # 13. Chutes AI -- FIX: corrected model names
-    ("chutes", "https://llm.chutes.ai/v1/chat/completions", "CHUTES_API_KEY",
-     ["Llama-3.3-70B-Instruct", "deepseek-ai/DeepSeek-V3"]),
-
-    # 14. Scaleway -- FIX: corrected model IDs
-    ("scaleway", "https://api.scaleway.ai/v1/chat/completions", "SCALEWAY_API_KEY",
-     ["llama-3.3-70b-instruct"]),
-]
-
-# 15. Cloudflare Workers AI (non-standard URL -- handled separately)
-# WORKING: llama-3.3-70b-instruct-fp8-fast gives score 5!
-CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID", "")
-CF_API_TOKEN  = os.environ.get("CF_API_TOKEN", "")
-CF_MODELS     = [
-    "@cf/meta/llama-3.3-70b-instruct-fp8-fast",     # VERIFIED WORKING
-    "@cf/meta/llama-3.1-70b-instruct",
-    # deepseek-r1-distill-qwen-32b removed (400 errors)
-]
+try:
+    from huggingface_hub import HfApi, upload_file
+    _HAS_HF = True
+except ImportError:
+    _HAS_HF = False
 
 
-def build_teachers():
-    teachers = []
-    for name, url, env, models in SPECS:
-        keys = [k.strip() for k in os.environ.get(env, "").split(",") if k.strip()]
-        for i, key in enumerate(keys):
-            for model in models:
-                teachers.append({
-                    "name": f"{name}#{i}:{model.split('/')[-1]}",
-                    "url": url, "key": key, "model": model,
-                    "cool_until": 0.0, "fails": 0, "provider": name
-                })
-    # Cloudflare special URL
-    if CF_ACCOUNT_ID and CF_API_TOKEN:
-        for model in CF_MODELS:
-            cf_url = (f"https://api.cloudflare.com/client/v4/accounts/"
-                      f"{CF_ACCOUNT_ID}/ai/run/{model}")
-            teachers.append({
-                "name": f"cloudflare:0:{model.split('/')[-1]}",
-                "url": cf_url, "key": CF_API_TOKEN, "model": model,
-                "cool_until": 0.0, "fails": 0, "provider": "cloudflare"
-            })
-    return teachers
+# ---------------------------------------------------------------------------
+# utils
+# ---------------------------------------------------------------------------
+def now_iso():
+    return datetime.now(timezone.utc).isoformat()
 
+def log(*a):
+    print(f"[{now_iso()}]", *a, flush=True)
 
-DOMAINS = [
-    "step-by-step math reasoning", "competitive coding in Python",
-    "debugging and fixing code", "science explanation (physics/bio/chem)",
-    "logical & lateral reasoning puzzles", "history and geography",
-    "Hindi/Hinglish tutoring for students", "essay and creative writing",
-    "data analysis and SQL", "system design and architecture",
-    "machine learning concepts", "real-world how-to and life advice",
-    "business and finance basics", "grammar and language learning",
-    "ethical dilemmas and balanced reasoning", "agentic tool-use planning",
-]
-AUDIENCES = ["a 10-year-old", "a college student", "an expert", "a beginner coder",
-             "a Hindi-speaking student", "a busy professional"]
-EVOLVE = ["make it deeper and more detailed", "make it harder and more nuanced",
-          "add a real-world constraint", "require multi-step reasoning",
-          "broaden it to a related edge case"]
+def env(name, default=None):
+    v = os.environ.get(name)
+    return v if (v is not None and str(v).strip() != "") else default
 
-
-def healthy(teachers):
-    now = time.time()
-    return [t for t in teachers if t["cool_until"] < now]
-
-
-def mark_fail(t):
-    t["fails"] += 1
-    if t["fails"] >= 3:
-        t["cool_until"] = time.time() + COOLDOWN
-        t["fails"] = 0
-        print(f"  [switch] {t['name']} -> cooldown {COOLDOWN}s")
-
-
-def _chat(t, messages, max_tokens=1024, temperature=0.8):
-    """Universal chat caller -- handles Cloudflare and Cohere special formats."""
-    headers = {"Authorization": "Bearer " + t["key"], "Content-Type": "application/json"}
-
-    if t.get("provider") == "cloudflare":
-        body = {"messages": messages, "max_tokens": max_tokens, "temperature": temperature}
-        r = requests.post(t["url"], headers=headers,
-                          data=json.dumps(body), timeout=HTTP_TIMEOUT)
-        r.raise_for_status()
-        t["fails"] = 0
-        return r.json().get("result", {}).get("response", "").strip()
-
-    elif t.get("provider") == "cohere":
-        # Cohere v2: response["message"]["content"][0]["text"]
-        body = {"model": t["model"], "messages": messages,
-                "max_tokens": max_tokens, "temperature": temperature}
-        r = requests.post(t["url"], headers=headers,
-                          data=json.dumps(body), timeout=HTTP_TIMEOUT)
-        r.raise_for_status()
-        t["fails"] = 0
-        resp = r.json()
-        # Handle both response formats
-        if "message" in resp:
-            content = resp["message"].get("content", [])
-            if isinstance(content, list) and content:
-                return content[0].get("text", "").strip()
-            return str(content).strip()
-        # Fallback: OpenAI-compat
-        return resp["choices"][0]["message"]["content"].strip()
-
-    else:
-        # Standard OpenAI-compatible
-        body = {"model": t["model"], "messages": messages,
-                "max_tokens": max_tokens, "temperature": temperature}
-        r = requests.post(t["url"], headers=headers,
-                          data=json.dumps(body), timeout=HTTP_TIMEOUT)
-        r.raise_for_status()
-        t["fails"] = 0
-        return r.json()["choices"][0]["message"]["content"].strip()
-
-
-def _norm(s):
-    return re.sub(r"\s+", " ", (s or "").lower()).strip()[:400]
-
-
-def _hash(s):
-    return hashlib.sha1(_norm(s).encode("utf-8")).hexdigest()
-
-
-def _load_seen():
-    if os.path.exists(SEEN_FILE):
-        with open(SEEN_FILE) as f:
-            return set(x.strip() for x in f if x.strip())
-    return set()
-
-
-def gen_instruction(t):
-    domain = random.choice(DOMAINS)
-    aud = random.choice(AUDIENCES)
-    evo = random.choice(EVOLVE)
-    sys_p = ("You are an expert dataset author. Output ONE single high-quality "
-             "instruction/question only -- no answer, no preamble, no numbering.")
-    user = (f"Write one challenging instruction about '{domain}' aimed at {aud}. "
-            f"Then {evo}. Some of the time write it in Hindi or Hinglish. "
-            f"Return ONLY the instruction text.")
-    q = _chat(t, [{"role": "system", "content": sys_p},
-                  {"role": "user", "content": user}],
-              max_tokens=200, temperature=1.0)
-    return re.sub(r'^[\d\.\)\-\s"]+', "", q).strip().strip('"')
-
-
-def gen_answer(t, instruction):
-    sys_p = ("You are Damru, a brilliant, precise Indian AI tutor. Answer fully and "
-             "correctly with clear reasoning. If code, make it runnable. Match the "
-             "language of the question (Hindi/Hinglish/English).")
-    return _chat(t, [{"role": "system", "content": sys_p},
-                     {"role": "user", "content": instruction}],
-                 max_tokens=1400, temperature=0.6)
-
-
-def verify(t, instruction, answer):
-    sys_p = "You are a strict grader. Reply with ONLY an integer 1-5."
-    user = ("Rate the answer's correctness, completeness, and helpfulness 1-5.\n\n"
-            f"QUESTION:\n{instruction}\n\nANSWER:\n{answer}\n\nScore (1-5):")
-    out = _chat(t, [{"role": "system", "content": sys_p},
-                    {"role": "user", "content": user}],
-                max_tokens=5, temperature=0.0)
-    m = re.search(r"[1-5]", out)
-    return int(m.group(0)) if m else 0
-
-
-def push_dataset(path):
-    if not HF_TOKEN:
-        print("[warn] no HF_TOKEN -> data saved locally only")
-        return
+def env_int(name, default):
     try:
-        from huggingface_hub import HfApi
-        api = HfApi(token=HF_TOKEN.split(",")[0].strip())
-        api.create_repo(DATASET_REPO, repo_type="dataset", exist_ok=True)
-        stamp = time.strftime("%Y%m%d-%H%M%S")
-        api.upload_file(
-            path_or_fileobj=path,
-            path_in_repo=f"forge/damru_forge_{stamp}.jsonl",
-            repo_id=DATASET_REPO, repo_type="dataset")
-        print("[push] ->", DATASET_REPO, stamp)
-    except Exception as e:
-        print("[warn] push failed:", str(e)[:200])
+        return int(str(env(name, default)).strip())
+    except Exception:
+        return default
+
+def sha256(s):
+    return hashlib.sha256(s.encode("utf-8", "ignore")).hexdigest()[:16]
 
 
-def safe(fn, *a):
-    """Run a teacher call; on failure mark_fail + return None so loop self-switches."""
-    t = a[0]
-    try:
-        return fn(*a)
-    except requests.HTTPError as e:
-        code = getattr(e.response, "status_code", 0)
-        body = ""
+# ---------------------------------------------------------------------------
+# Provider
+# ---------------------------------------------------------------------------
+class Provider:
+    def __init__(self, name, url, model, key, headers=None):
+        self.name = name
+        self.url = url
+        self.model = model
+        self.key = key
+        self.extra_headers = headers or {}
+        self.fails = 0
+        self.cool_until = 0.0
+
+    def healthy(self):
+        return time.time() >= self.cool_until
+
+    def chat(self, messages, temperature=0.7, max_tokens=1024, timeout=60):
+        if not self.healthy():
+            return None
+        h = {"Content-Type": "application/json"}
+        if self.key:
+            h["Authorization"] = f"Bearer {self.key}"
+        h.update(self.extra_headers)
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
         try:
-            body = e.response.text[:80]
+            r = requests.post(self.url, headers=h, json=payload, timeout=timeout)
+            if r.status_code == 200:
+                txt = (r.json().get("choices", [{}])[0]
+                              .get("message", {}).get("content"))
+                if txt and str(txt).strip():
+                    self.fails = 0
+                    return str(txt).strip()
+                self._trip("empty")
+                return None
+            if r.status_code in (401, 403, 404):
+                log(f"  [dead] {self.name} HTTP {r.status_code} — disabling")
+                self.cool_until = time.time() + 86400
+                return None
+            self._trip(f"http{r.status_code}")
+            return None
+        except Exception as e:
+            self._trip(str(e)[:60])
+            return None
+
+    def _trip(self, why):
+        self.fails += 1
+        cool = min(1200, 60 * self.fails)
+        self.cool_until = time.time() + cool
+        log(f"  [cool] {self.name} {cool}s ({why}, fails={self.fails})")
+
+
+def build_providers():
+    skip_missing = env_int("DAMRU_SKIP_MISSING", 1)
+    provs = []
+
+    def add(name, url, model, key, headers=None):
+        if not key:
+            if not skip_missing:
+                log(f"[WARN] {name}: no key, DAMRU_SKIP_MISSING=0 -> abort")
+                sys.exit(1)
+            return  # silently skip
+        provs.append(Provider(name, url, model, key, headers))
+
+    hf = env("HF_TOKEN")
+
+    add("cerebras",
+        "https://api.cerebras.ai/v1/chat/completions",
+        env("CEREBRAS_MODEL", "llama-3.3-70b"),
+        env("CEREBRAS_API_KEY"))
+
+    add("openrouter",
+        "https://openrouter.ai/api/v1/chat/completions",
+        env("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
+        env("OPENROUTER_API_KEY"),
+        {"HTTP-Referer": "https://damru-ai.vercel.app", "X-Title": "Damru Forge"})
+
+    # NOTE: GH_MODELS_TOKEN_VAL (not GITHUB_* — GitHub Actions blocks GITHUB_* prefix)
+    add("gh-models",
+        "https://models.github.ai/inference/chat/completions",
+        env("GH_MODEL", "openai/gpt-4.1-mini"),
+        env("GH_MODELS_TOKEN_VAL"))
+
+    add("sambanova",
+        "https://api.sambanova.ai/v1/chat/completions",
+        env("SAMBANOVA_MODEL", "Meta-Llama-3.3-70B-Instruct"),
+        env("SAMBANOVA_API_KEY"))
+
+    add("together",
+        "https://api.together.xyz/v1/chat/completions",
+        env("TOGETHER_MODEL", "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free"),
+        env("TOGETHER_API_KEY"))
+
+    add("deepinfra",
+        "https://api.deepinfra.com/v1/openai/chat/completions",
+        env("DEEPINFRA_MODEL", "meta-llama/Llama-3.3-70B-Instruct"),
+        env("DEEPINFRA_API_KEY"))
+
+    add("hyperbolic",
+        "https://api.hyperbolic.xyz/v1/chat/completions",
+        env("HYPERBOLIC_MODEL", "meta-llama/Llama-3.3-70B-Instruct"),
+        env("HYPERBOLIC_API_KEY"))
+
+    add("mistral",
+        "https://api.mistral.ai/v1/chat/completions",
+        env("MISTRAL_MODEL", "mistral-small-latest"),
+        env("MISTRAL_API_KEY"))
+
+    add("nvidia-nim",
+        "https://integrate.api.nvidia.com/v1/chat/completions",
+        env("NIM_MODEL", "meta/llama-3.3-70b-instruct"),
+        env("NVIDIA_NIM_KEY"))
+
+    # Cloudflare Workers AI
+    cf_account = env("CF_ACCOUNT_ID")
+    cf_token = env("CF_API_TOKEN")
+    if cf_account and cf_token:
+        add("cloudflare",
+            f"https://api.cloudflare.com/client/v4/accounts/{cf_account}/ai/v1/chat/completions",
+            env("CF_MODEL", "@cf/meta/llama-3.3-70b-instruct-fp8-fast"),
+            cf_token)
+
+    add("fireworks",
+        "https://api.fireworks.ai/inference/v1/chat/completions",
+        env("FIREWORKS_MODEL", "accounts/fireworks/models/llama-v3p3-70b-instruct"),
+        env("FIREWORKS_API_KEY"))
+
+    add("cohere",
+        "https://api.cohere.com/v2/chat",
+        env("COHERE_MODEL", "command-r-plus-08-2024"),
+        env("COHERE_API_KEY"))
+
+    add("chutes",
+        "https://llm.chutes.ai/v1/chat/completions",
+        env("CHUTES_MODEL", "unsloth/Llama-3.3-70B-Instruct"),
+        env("CHUTES_API_KEY"))
+
+    add("scaleway",
+        "https://api.scaleway.ai/v1/chat/completions",
+        env("SCALEWAY_MODEL", "llama-3.3-70b-instruct"),
+        env("SCALEWAY_API_KEY"))
+
+    # HF Router as fallback
+    if hf:
+        add("hf-router",
+            "https://router.huggingface.co/v1/chat/completions",
+            env("HF_MODEL", "meta-llama/Llama-3.3-70B-Instruct"),
+            hf)
+
+    return provs
+
+
+# ---------------------------------------------------------------------------
+# Topic generator
+# ---------------------------------------------------------------------------
+TOPICS = [
+    "Python programming", "Machine learning basics", "Data structures",
+    "Web development", "Linux commands", "Git and version control",
+    "SQL databases", "APIs and REST", "Algorithms", "Mathematics",
+    "Physics", "Chemistry", "Biology", "History", "Geography",
+    "Economics", "Philosophy", "Psychology", "Literature", "Grammar",
+    "Cooking", "Health and nutrition", "Exercise and fitness",
+    "Personal finance", "Career advice", "Communication skills",
+    "Critical thinking", "Problem solving", "Creativity", "Leadership",
+    "Cloud computing", "Cybersecurity", "DevOps", "Kubernetes", "Docker",
+    "React", "TypeScript", "Rust", "Go programming", "System design",
+]
+
+QUESTION_TYPES = [
+    "explain concept", "step-by-step tutorial", "compare and contrast",
+    "pros and cons", "real-world example", "common mistakes",
+    "best practices", "quick overview", "detailed deep dive",
+    "beginner guide", "advanced tips", "troubleshooting guide",
+]
+
+
+def generate_qa_prompt():
+    topic = random.choice(TOPICS)
+    qtype = random.choice(QUESTION_TYPES)
+    return (
+        f"Generate ONE high-quality question and answer pair about: {topic}\n"
+        f"Style: {qtype}\n"
+        "Format (strict JSON, no extra text):\n"
+        '{"question": "<clear question>", "answer": "<detailed helpful answer>"}'
+    )
+
+
+def generate_instruction_prompt():
+    topic = random.choice(TOPICS)
+    return (
+        f"Create ONE instruction-following example about: {topic}\n"
+        "The instruction should require a helpful, detailed response.\n"
+        "Format (strict JSON, no extra text):\n"
+        '{"instruction": "<task instruction>", "response": "<high-quality response>"}'
+    )
+
+
+# ---------------------------------------------------------------------------
+# Brain (round-robin + heal)
+# ---------------------------------------------------------------------------
+class Brain:
+    def __init__(self, providers):
+        self.providers = providers
+        self.idx = 0
+
+    def alive(self):
+        return any(p.healthy() for p in self.providers)
+
+    def ask(self, messages, temperature=0.7, max_tokens=1024):
+        n = len(self.providers)
+        if n == 0:
+            return None
+        for _ in range(n * 2):
+            p = self.providers[self.idx % n]
+            self.idx += 1
+            if not p.healthy():
+                continue
+            out = p.chat(messages, temperature=temperature, max_tokens=max_tokens)
+            if out:
+                return out
+        return None
+
+
+# ---------------------------------------------------------------------------
+# JSON extractor
+# ---------------------------------------------------------------------------
+def extract_json(text):
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+    # fenced block
+    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S)
+    if m:
+        try:
+            return json.loads(m.group(1))
         except Exception:
             pass
-        print(f"  http {code} on {t['name']} {body}")
-        mark_fail(t)
-        if code == 429:
-            t["cool_until"] = time.time() + COOLDOWN
-        elif code in (401, 403):
-            # Auth failed -- long cooldown, not worth retrying soon
-            t["cool_until"] = time.time() + 3600
-        return None
-    except requests.Timeout:
-        print(f"  timeout on {t['name']}")
-        mark_fail(t)
-        return None
+    # first balanced brace
+    start = text.find("{")
+    while start != -1:
+        depth = 0
+        for i in range(start, len(text)):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(text[start:i+1])
+                    except Exception:
+                        break
+        start = text.find("{", start + 1)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# HF push
+# ---------------------------------------------------------------------------
+def hf_push(dataset, records, hf_token):
+    if not _HAS_HF or not hf_token or not records:
+        if records:
+            log(f"[hf] skip push ({len(records)} records — no token or lib)")
+        return
+    try:
+        api = HfApi(token=hf_token)
+        try:
+            api.create_repo(dataset, repo_type="dataset", exist_ok=True, private=True)
+        except Exception:
+            pass
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        fname = f"/tmp/forge_{stamp}.jsonl"
+        with open(fname, "w", encoding="utf-8") as f:
+            for r in records:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        upload_file(
+            path_or_fileobj=fname,
+            path_in_repo=f"forge/forge_{stamp}.jsonl",
+            repo_id=dataset, repo_type="dataset", token=hf_token,
+        )
+        log(f"[hf] pushed {len(records)} records -> {dataset}/forge/forge_{stamp}.jsonl")
+        os.unlink(fname)
     except Exception as e:
-        print("  err", t["name"], str(e)[:120])
-        mark_fail(t)
-        return None
+        log(f"[hf] push failed: {e}")
 
 
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 def main():
-    teachers = build_teachers()
-    if not teachers:
-        print("NO API KEYS FOUND. Set any of:\n"
-              "  CEREBRAS_API_KEY, OPENROUTER_API_KEY, GH_MODELS_TOKEN_VAL, HF_TOKEN,\n"
-              "  SAMBANOVA_API_KEY, TOGETHER_API_KEY, DEEPINFRA_API_KEY, HYPERBOLIC_API_KEY,\n"
-              "  MISTRAL_API_KEY, NVIDIA_NIM_KEY, CF_API_TOKEN+CF_ACCOUNT_ID,\n"
-              "  FIREWORKS_API_KEY, COHERE_API_KEY, CHUTES_API_KEY, SCALEWAY_API_KEY")
+    hf_token = env("HF_TOKEN")
+    if not hf_token:
+        log("[WARN] HF_TOKEN missing — data will not be pushed")
+
+    dataset = env("DAMRU_DATASET", "Damaru-ai/damru-knowledge")
+    max_iters = env_int("DAMRU_MAX_ITERS", 1200)
+    push_every = env_int("DAMRU_PUSH_EVERY", 40)
+    keep_score = env_int("DAMRU_KEEP_SCORE", 4)  # min answer length in words
+    time_budget_min = env_int("DAMRU_TIME_BUDGET_MIN", 50)  # autopilot has 55min
+    t_start = time.time()
+    deadline = t_start + time_budget_min * 60
+
+    log("=" * 60)
+    log("DAMRU DATA FORGE starting")
+    log(f"  dataset={dataset} max_iters={max_iters} push_every={push_every}")
+
+    providers = build_providers()
+    if not providers:
+        log("[FATAL] No providers active. Set at least one API key secret.")
+        log("  Needed: CEREBRAS_API_KEY | OPENROUTER_API_KEY | GH_MODELS_TOKEN_VAL")
+        log("  | SAMBANOVA_API_KEY | TOGETHER_API_KEY | etc.")
         sys.exit(1)
 
-    print(f"[Damru Forge v2] {len(teachers)} teacher slots loaded:")
-    for t in teachers:
-        print(f"  + {t['name']}")
+    log(f"  active providers ({len(providers)}): " +
+        ", ".join(f"{p.name}" for p in providers))
+    brain = Brain(providers)
 
-    seen = _load_seen()
-    made, it = 0, 0
-    fout  = open(OUT_JSONL, "a", encoding="utf-8")
-    fseen = open(SEEN_FILE, "a", encoding="utf-8")
+    seen = set()
+    records = []
+    total = 0
+    pushed = 0
 
-    while True:
-        it += 1
-        if MAX_ITERS and it > MAX_ITERS:
+    for iteration in range(1, max_iters + 1 if max_iters else 10**9):
+        if time.time() >= deadline:
+            log(f"[done] time budget {time_budget_min}min reached")
             break
-        pool = healthy(teachers)
-        if not pool:
-            nap = 30
-            print(f"  all teachers cooling -> sleep {nap}s")
-            time.sleep(nap)
+        if not brain.alive():
+            log("[heal] all providers cooling, sleeping 60s")
+            time.sleep(60)
             continue
 
-        tq = random.choice(pool)
-        ta = random.choice(pool)
-        tv = random.choice(pool)
+        try:
+            # Alternate between QA and instruction formats
+            if iteration % 2 == 0:
+                prompt = generate_qa_prompt()
+                mode = "qa"
+            else:
+                prompt = generate_instruction_prompt()
+                mode = "instr"
 
-        q = safe(gen_instruction, tq)
-        if not q or len(q) < 12:
-            continue
-        h = _hash(q)
-        if h in seen:
-            continue
+            raw = brain.ask(
+                [{"role": "user", "content": prompt}],
+                temperature=random.uniform(0.6, 0.9),
+                max_tokens=1024,
+            )
+            if not raw:
+                continue
 
-        a = safe(gen_answer, ta, q)
-        if not a or len(a) < 20:
-            continue
+            data = extract_json(raw)
+            if not data:
+                continue
 
-        score = safe(verify, tv, q, a) or 0
-        if score < KEEP_SCORE:
-            print(f"  drop (score {score}) :: {q[:60]}")
-            continue
+            if mode == "qa":
+                q = str(data.get("question", "")).strip()
+                a = str(data.get("answer", "")).strip()
+                if not q or not a:
+                    continue
+                if len(a.split()) < keep_score * 5:  # too short
+                    continue
+                h = sha256(q)
+                if h in seen:
+                    continue
+                seen.add(h)
+                records.append({
+                    "type": "qa",
+                    "messages": [
+                        {"role": "user", "content": q},
+                        {"role": "assistant", "content": a},
+                    ],
+                    "ts": now_iso(),
+                })
+            else:
+                ins = str(data.get("instruction", "")).strip()
+                resp = str(data.get("response", "")).strip()
+                if not ins or not resp:
+                    continue
+                if len(resp.split()) < keep_score * 5:
+                    continue
+                h = sha256(ins)
+                if h in seen:
+                    continue
+                seen.add(h)
+                records.append({
+                    "type": "instruction",
+                    "messages": [
+                        {"role": "user", "content": ins},
+                        {"role": "assistant", "content": resp},
+                    ],
+                    "ts": now_iso(),
+                })
 
-        rec = {
-            "messages": [{"role": "user", "content": q},
-                         {"role": "assistant", "content": a}],
-            "instruction": q, "output": a, "score": score,
-            "teacher_q": tq["model"], "teacher_a": ta["model"],
-            "ts": time.time()
-        }
-        fout.write(json.dumps(rec, ensure_ascii=False) + "\n")
-        fout.flush()
-        fseen.write(h + "\n")
-        fseen.flush()
-        seen.add(h)
-        made += 1
-        print(f"[{made}] score {score} | {ta['name']} | {q[:66]}")
+            total += 1
+            if total % 10 == 0:
+                log(f"  iter={iteration} total={total} pending_push={len(records)-pushed}")
 
-        if made % PUSH_EVERY == 0:
-            push_dataset(OUT_JSONL)
+            if len(records) - pushed >= push_every:
+                hf_push(dataset, records[pushed:], hf_token)
+                pushed = len(records)
 
-        time.sleep(float(os.environ.get("DAMRU_SLEEP", "1.5")))
+        except Exception:
+            log(f"[iter {iteration}] error (continuing):")
+            log(traceback.format_exc()[:500])
 
-    fout.close()
-    fseen.close()
-    if made:
-        push_dataset(OUT_JSONL)
-    print(f"\nDONE. {made} quality examples this run -> {OUT_JSONL}")
+    # final push
+    if len(records) > pushed:
+        hf_push(dataset, records[pushed:], hf_token)
+
+    log("=" * 60)
+    log(f"DAMRU DATA FORGE done. total_generated={total} total_records={len(records)}")
+    active_now = sum(1 for p in providers if p.healthy())
+    log(f"  providers alive at end: {active_now}/{len(providers)}")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception:
+        log("[FATAL]")
+        log(traceback.format_exc())
+        sys.exit(1)

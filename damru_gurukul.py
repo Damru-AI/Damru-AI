@@ -33,7 +33,7 @@ ENV (all optional except one provider key + HF_TOKEN to push):
   OWN_MODEL              Damru's own model id (HF router) to close the loop
   CEREBRAS_API_KEY       comma-list ok (multi-key rotation)
   OPENROUTER_API_KEY     comma-list ok
-  GITHUB_MODELS_TOKEN    comma-list ok
+  GH_MODELS_TOKEN_VAL    comma-list ok  (NOTE: GITHUB_* prefix banned by GitHub Actions)
   DAMRU_GROUP_SIZE       G, default 6
   DAMRU_DOMAINS          default 'math,code,reasoning'
   DAMRU_MAX_ITERS        0 = forever (default 0)
@@ -245,7 +245,9 @@ def build_providers():
             {"HTTP-Referer": "https://damru-ai.vercel.app",
              "X-Title": "Damru Gurukul"}))
 
-    for k in _split_keys(env("GITHUB_MODELS_TOKEN")):
+    # FIX: Renamed from GITHUB_MODELS_TOKEN to GH_MODELS_TOKEN_VAL
+    # GitHub Actions blocks any env var starting with GITHUB_* prefix!
+    for k in _split_keys(env("GH_MODELS_TOKEN_VAL")):
         provs.append(Provider(
             "github-models", "https://models.github.ai/inference/chat/completions",
             env("GITHUB_MODEL", "deepseek/DeepSeek-R1"), k))
