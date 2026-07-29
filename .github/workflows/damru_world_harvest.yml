@@ -1,0 +1,50 @@
+name: Damru World Harvest
+
+on:
+  schedule:
+    # Every 6 hours -- free, unlimited for public repos
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      max_tiles:
+        description: 'Max tiles to harvest'
+        default: '2000'
+        required: false
+
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 320
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -q requests feedparser huggingface_hub datasets beautifulsoup4 lxml
+
+      - name: World Harvest (self-healing)
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HF_DATASET: "Damaru-ai/damru-knowledge"
+          HF_OWNER: "Damaru-ai"
+          MAX_TILES: ${{ github.event.inputs.max_tiles || '2000' }}
+          RUN_MODE: "github_actions"
+        run: |
+          # Self-healing: retry up to 3 times on failure
+          for i in 1 2 3; do
+            python damru_world_harvest.py && break
+            echo "Attempt $i failed, retrying in ${i}0s..."
+            sleep $((i * 10))
+          done
+
+      - name: Show harvest stats
+        run: cat /tmp/harvest_stats.txt 2>/dev/null || echo "Stats not available"

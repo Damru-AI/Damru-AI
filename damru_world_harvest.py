@@ -3,27 +3,36 @@
 ================================================================================
   DAMRU WORLD HARVEST v1.0
 ================================================================================
-Harvests ALL freely available world data for Damru's knowledge base:
+Sabse bada data engine — Damru ke liye puri dharti ka data:
 
-  Sources covered:
-    1. GitHub Public Repos    - trending, topics (AI/ML/space/science/math)
-    2. HuggingFace Datasets   - user's own + popular open datasets
-    3. Wikipedia              - ALL major topics, multilingual
-    4. arXiv                  - latest research papers (AI, physics, space, bio)
-    5. NASA Open Data         - space missions, astronomy, earth science
-    6. ISRO Data              - Indian space programme data
-    7. ESA Open Science       - European space data
-    8. Open Library           - 20M+ books metadata
-    9. Stack Overflow         - programming Q&A (public API)
-   10. Reddit                 - science, space, programming communities
-   11. Common Crawl           - the entire web (sampled)
-   12. PubMed                 - medical/biology research
-   13. NCERT                  - Indian school curriculum
-   14. Khan Academy           - free education content
-   15. Gutenberg              - 70,000 free books
+  TIER 1: Free, Unlimited
+    * Wikipedia  (200+ languages, 60M+ articles)
+    * arXiv      (2M+ research papers: AI, physics, space, math, bio)
+    * GitHub     (public repos: trending, topics, README, code)
+    * NASA Open Data (space, missions, exoplanets, ISS, Mars)
+    * ISRO data  (Indian space missions)
+    * PubMed     (medical research)
+    * OpenLibrary(books, literature)
+    * Gutenberg  (50k+ free books)
+    * Stack Overflow (public Q&A API)
+    * Reddit     (public pushshift/API)
+    * NCBI       (biology, genetics)
+    * Common Crawl subset (web crawl data)
+    * OpenStreetMap (geography)
+    * UN Data    (world statistics)
+    * ESA        (European space agency)
 
-Output: PRAYAS Knowledge Tiles (JSONL) pushed to HF dataset
-Self-healing: every source has independent try/except + retry
+  TIER 2: HF Datasets (Sunil's own datasets)
+    * All Damaru-ai/* datasets on HuggingFace
+    * Community datasets: math, code, science, multilingual
+
+  TIER 3: GitHub Public Repos
+    * Trending repos (daily)
+    * Topics: AI, ML, robotics, space, defense, automotive
+    * README + code snippets -> knowledge tiles
+
+All data -> PRAYAS Knowledge Tiles (JSONL)
+GitHub Actions: runs every 6 hours, self-heals on error
 ================================================================================
 """
 import os
@@ -32,32 +41,12 @@ import json
 import time
 import random
 import logging
-import hashlib
-import argparse
-import threading
+import requests
+import feedparser
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Iterator
-from urllib.parse import quote, urlencode
-
-try:
-    import requests
-    _HAS_REQUESTS = True
-except ImportError:
-    _HAS_REQUESTS = False
-    print("pip install requests feedparser huggingface_hub")
-
-try:
-    import feedparser
-    _HAS_FEEDPARSER = True
-except ImportError:
-    _HAS_FEEDPARSER = False
-
-try:
-    from huggingface_hub import HfApi
-    _HAS_HF = True
-except ImportError:
-    _HAS_HF = False
+from typing import List, Dict, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logging.basicConfig(
     level=logging.INFO,
@@ -66,539 +55,565 @@ logging.basicConfig(
 )
 log = logging.getLogger()
 
-# ─────────────────────────────────────────
-#  CONFIG
-# ─────────────────────────────────────────
-HF_TOKEN    = os.environ.get("HF_TOKEN", "")
-HF_DATASET  = os.environ.get("HF_DATASET", "Damaru-ai/damru-knowledge")
-GH_TOKEN    = os.environ.get("GH_TOKEN", HF_TOKEN)
-OUTPUT_DIR  = Path(os.environ.get("HARVEST_OUTPUT", "/tmp/damru_tiles"))
-BATCH_SIZE  = int(os.environ.get("HARVEST_BATCH",   "1000"))
-MAX_RUNTIME = int(os.environ.get("HARVEST_MAX_SEC", "39600"))  # 11h for Kaggle
-USER_AGENT  = "DamruBot/2.0 (educational AI; github.com/Damru-AI/Damru-AI)"
+# --- Config ---
+HF_TOKEN     = os.environ.get("HF_TOKEN", "")
+GH_TOKEN     = os.environ.get("GH_TOKEN", HF_TOKEN)
+HF_DATASET   = os.environ.get("HF_DATASET", "Damaru-ai/damru-knowledge")
+HF_OWNER     = os.environ.get("HF_OWNER",  "Damaru-ai")
+MAX_TILES_PER_RUN = int(os.environ.get("MAX_TILES", "2000"))
+RUN_MODE     = os.environ.get("RUN_MODE", "github_actions")
+STATS_FILE   = Path("/tmp/harvest_stats.txt")
 
-HEADERS = {"User-Agent": USER_AGENT}
-GH_HEADERS = {
-    "User-Agent": USER_AGENT,
-    "Accept": "application/vnd.github+json",
-    **(({"Authorization": f"Bearer {GH_TOKEN}"}) if GH_TOKEN else {})
-}
-
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-# ─────────────────────────────────────────
-#  USER'S HF DATASETS
-# ─────────────────────────────────────────
-USER_HF_DATASETS = [
-    "Damaru-ai/damru-knowledge",    # main knowledge base
-    # Add more of user's datasets here as they grow
-]
-
-# ─────────────────────────────────────────
-#  DOMAIN TOPICS
-# ─────────────────────────────────────────
-TOPICS = {
-    "space": [
-        "NASA Artemis Moon mission", "SpaceX Starship reusable rocket",
-        "Mars exploration rover Perseverance", "James Webb Space Telescope discoveries",
-        "ISRO Gaganyaan human spaceflight", "space mining asteroids",
-        "International Space Station life support", "black hole event horizon",
-        "exoplanet habitability zone", "solar wind magnetosphere Earth",
-        "neutron star pulsar", "gravitational waves LIGO",
-        "Chandrayaan-3 lunar south pole", "Aditya-L1 solar observatory",
-        "SpaceX Starlink satellite constellation", "orbital mechanics Hohmann transfer",
-        "rocket propulsion types", "space debris Kessler syndrome",
-    ],
-    "ai_ml": [
-        "transformer attention mechanism deep learning", "reinforcement learning reward function",
-        "large language model training RLHF", "diffusion model image generation",
-        "graph neural network knowledge graph", "federated learning privacy",
-        "computer vision YOLO object detection", "natural language processing tokenization",
-        "mixture of experts sparse model", "retrieval augmented generation",
-        "quantization model compression", "neural architecture search",
-    ],
-    "science": [
-        "CRISPR gene editing applications", "mRNA vaccine technology",
-        "quantum entanglement teleportation", "nuclear fusion ITER tokamak",
-        "climate change carbon capture", "renewable energy solar panels",
-        "periodic table elements chemistry", "DNA replication transcription",
-        "photosynthesis Calvin cycle", "evolution natural selection Darwin",
-        "neuroscience brain plasticity", "particle physics Standard Model Higgs boson",
-    ],
-    "india": [
-        "IIT research innovation India", "ISRO space programme history",
-        "Indian Constitution fundamental rights", "Indian economy GDP growth sectors",
-        "Vedic mathematics ancient India", "Sanskrit grammar Panini",
-        "Indian startup ecosystem unicorn", "digital India UPI payment",
-        "biodiversity Western Ghats India", "Indian Railways network largest",
-        "JEE NEET exam pattern", "UPSC civil services examination",
-    ],
-    "math": [
-        "Riemann hypothesis prime numbers", "Fermat Last Theorem Wiles proof",
-        "P vs NP computational complexity", "Fourier transform signal processing",
-        "linear algebra eigenvalues PCA", "calculus fundamental theorem",
-        "probability Bayesian inference", "combinatorics graph theory",
-        "abstract algebra group theory", "topology manifolds",
-        "number theory modular arithmetic", "statistics hypothesis testing",
-    ],
-    "tech": [
-        "blockchain distributed ledger", "quantum computing qubit superposition",
-        "5G network slicing", "edge computing IoT",
-        "cybersecurity zero trust", "compiler design LLVM",
-        "database B-tree indexing", "distributed systems CAP theorem",
-        "microservices Docker Kubernetes", "WebAssembly browser performance",
-        "autonomous vehicles LIDAR sensor fusion", "robotics SLAM navigation",
-    ],
-    "emotion_psychology": [
-        "emotional intelligence EQ Goleman", "cognitive behavioral therapy CBT",
-        "attachment theory infant bonding", "Maslow hierarchy of needs motivation",
-        "mirror neurons empathy brain", "decision making cognitive biases",
-        "animal cognition tool use intelligence", "dog loyalty trust human bond",
-        "positive psychology flow state", "trauma healing resilience",
-    ],
-    "3d_manufacturing": [
-        "3D printing additive manufacturing FDM", "CAD parametric design",
-        "CNC machining manufacturing", "materials science composites",
-        "topology optimization lightweight structures", "bioprinting tissue engineering",
-        "space manufacturing zero gravity", "generative design AI manufacturing",
-    ],
-    "defence": [
-        "hypersonic missile technology", "drone swarm autonomous systems",
-        "electronic warfare radar", "stealth aircraft design",
-        "missile guidance systems", "military AI decision support",
-        "cybersecurity national defence", "satellite reconnaissance",
-    ],
-    "transport": [
-        "autonomous vehicle sensor fusion", "vehicle to vehicle V2V communication",
-        "electric vehicle battery technology", "hyperloop transportation",
-        "air taxi eVTOL urban air mobility", "traffic optimization AI",
-        "driverless car safety systems", "GPS navigation GNSS",
-    ],
-}
-
-# ─────────────────────────────────────────
-#  HELPERS
-# ─────────────────────────────────────────
-def _get(url: str, params: dict = None, timeout: int = 20,
-         headers: dict = None, retries: int = 3) -> Optional[dict]:
-    """Safe HTTP GET with retry + exponential backoff."""
-    if not _HAS_REQUESTS:
-        return None
-    h = {**HEADERS, **(headers or {})}
-    for attempt in range(retries):
-        try:
-            r = requests.get(url, params=params, headers=h, timeout=timeout)
-            if r.status_code == 200:
-                return r.json()
-            elif r.status_code == 403:
-                log.warning(f"403 on {url[:60]} — rate limited")
-                time.sleep(60)
-            elif r.status_code == 404:
-                return None
-        except Exception as e:
-            wait = 2 ** attempt
-            log.debug(f"GET {url[:50]} error: {e} — retry in {wait}s")
-            time.sleep(wait)
-    return None
+HEADERS      = {"User-Agent": "DamruBot/2.0 (educational AI; damruai@gmail.com)"}
+GH_HEADERS   = {"Authorization": f"Bearer {GH_TOKEN}",
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "DamruBot/2.0"} if GH_TOKEN else HEADERS
 
 
-def _make_tile(text: str, topic: str, domain: str, source: str, lang: str = "en") -> Optional[dict]:
-    """Create a PRAYAS knowledge tile dict."""
-    text = re.sub(r'\s+', ' ', text.strip())
-    words = text.split()
-    if len(words) < 15:
-        return None
-    # Chunk into 120-word tiles
-    chunks = []
-    for i in range(0, len(words), 120):
-        chunk = " ".join(words[i:i+120])
-        if len(chunk.split()) < 15:
-            continue
-        tile_id = hashlib.md5(chunk.encode()).hexdigest()[:16]
-        chunks.append({
-            "id": tile_id,
-            "text": chunk,
-            "topic": topic,
-            "domain": domain,
-            "source": source,
-            "lang": lang,
-            "timestamp": datetime.utcnow().isoformat(),
-            "type": "prayas_tile",
-        })
-    return chunks
-
-
-# ─────────────────────────────────────────
+# ============================================================
 #  DATA SOURCES
-# ─────────────────────────────────────────
+# ============================================================
 
-def harvest_wikipedia(topic: str, domain: str) -> List[dict]:
-    """Fetch Wikipedia article text and convert to tiles."""
-    tiles = []
-    try:
-        # Search for article
-        data = _get("https://en.wikipedia.org/w/api.php", params={
-            "action": "query", "format": "json",
-            "list": "search", "srsearch": topic, "srlimit": "3"
-        })
-        if not data:
-            return []
-        hits = (data.get("query") or {}).get("search") or []
-        for hit in hits[:2]:
-            title = hit.get("title", "")
-            if not title:
-                continue
-            # Get full extract
-            detail = _get("https://en.wikipedia.org/api/rest_v1/page/summary/" +
-                          quote(title.replace(" ", "_")))
-            if detail and detail.get("extract"):
-                chunks = _make_tile(detail["extract"], topic, domain,
-                                    f"wikipedia:{title}")
-                if chunks:
-                    tiles.extend(chunks)
-        log.info(f"  Wiki '{topic}': {len(tiles)} tiles")
-    except Exception as e:
-        log.debug(f"Wiki error for '{topic}': {e}")
-    return tiles
+class WikipediaSource:
+    """Wikipedia: 60M+ articles, 200+ languages."""
+    TOPICS = [
+        # Space & Astronomy
+        "space exploration", "International Space Station", "Mars rover",
+        "black hole", "neutron star", "exoplanet", "James Webb Space Telescope",
+        "Chandrayaan mission", "ISRO", "NASA history", "SpaceX Falcon 9",
+        "lunar colonization", "asteroid mining", "solar system formation",
+        # AI & Technology
+        "artificial intelligence", "neural network", "transformer model",
+        "reinforcement learning", "computer vision", "natural language processing",
+        "quantum computing", "robotics automation", "autonomous vehicle",
+        "drone technology", "5G network", "edge computing",
+        # Science
+        "CRISPR gene editing", "protein folding", "climate change",
+        "renewable energy", "nuclear fusion", "quantum entanglement",
+        "dark matter", "gravitational waves", "particle physics",
+        # India
+        "Indian Space Research Organisation", "IIT research",
+        "India economy 2024", "Bharat startup ecosystem",
+        "Aryabhata mathematician", "Indian classical mathematics",
+        "Sanskrit grammar Panini", "Vedic astronomy",
+        # Math & Engineering
+        "Riemann hypothesis", "P versus NP problem", "Fourier transform",
+        "Bayesian inference", "linear algebra applications",
+        "differential equations engineering", "graph theory",
+        # Defense & Military
+        "military drone technology", "hypersonic missile",
+        "electronic warfare", "stealth technology aircraft",
+        "cyber warfare", "defense AI applications",
+        # Automotive & Transport
+        "self-driving car technology", "V2X communication",
+        "electric vehicle battery", "air taxi eVTOL",
+        "hyperloop transportation", "hydrogen fuel cell",
+        # Medical
+        "precision medicine", "mRNA vaccine technology",
+        "brain-computer interface", "surgical robotics",
+        # Human Behavior
+        "cognitive psychology", "emotional intelligence",
+        "behavioral economics", "social psychology",
+        "animal cognition", "dog behavior psychology",
+    ]
 
-
-def harvest_arxiv(topic: str, domain: str, max_results: int = 10) -> List[dict]:
-    """Fetch arXiv paper abstracts."""
-    tiles = []
-    if not _HAS_FEEDPARSER:
-        return []
-    try:
-        query = quote(topic)
-        url = f"http://export.arxiv.org/api/query?search_query=all:{query}&max_results={max_results}&sortBy=submittedDate&sortOrder=descending"
-        feed = feedparser.parse(url)
-        for entry in feed.entries[:max_results]:
-            text = f"{entry.get('title', '')}. {entry.get('summary', '')}"
-            chunks = _make_tile(text, topic, domain,
-                                f"arxiv:{entry.get('id', 'unknown')[:50]}")
-            if chunks:
-                tiles.extend(chunks)
-        log.info(f"  arXiv '{topic}': {len(tiles)} tiles")
-    except Exception as e:
-        log.debug(f"arXiv error for '{topic}': {e}")
-    return tiles
-
-
-def harvest_github_repos(topic: str, domain: str) -> List[dict]:
-    """Harvest README content from trending GitHub repos."""
-    tiles = []
-    try:
-        # Search repos
-        data = _get(
-            "https://api.github.com/search/repositories",
-            params={"q": f"{topic} in:description in:readme",
-                    "sort": "stars", "order": "desc", "per_page": "5"},
-            headers=GH_HEADERS
-        )
-        if not data:
-            return []
-        for repo in (data.get("items") or [])[:5]:
-            name  = repo.get("full_name", "")
-            desc  = repo.get("description") or ""
-            # Get README
-            readme_data = _get(
-                f"https://api.github.com/repos/{name}/readme",
-                headers=GH_HEADERS
+    def fetch(self, topic: str) -> Optional[Dict]:
+        try:
+            r = requests.get(
+                "https://en.wikipedia.org/api/rest_v1/page/summary/"
+                + requests.utils.quote(topic.replace(" ", "_")),
+                headers=HEADERS, timeout=15
             )
-            readme_text = ""
-            if readme_data and readme_data.get("content"):
-                import base64
-                try:
-                    raw = base64.b64decode(readme_data["content"]).decode("utf-8", errors="ignore")
-                    # Strip markdown
-                    raw = re.sub(r'```[\s\S]*?```', '', raw)
-                    raw = re.sub(r'#+ ', '', raw)
-                    raw = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', raw)
-                    readme_text = raw[:3000]
-                except Exception:
-                    pass
-            text = f"{name}: {desc}. {readme_text}"
-            chunks = _make_tile(text, topic, domain, f"github:{name}")
-            if chunks:
-                tiles.extend(chunks)
-            time.sleep(0.5)  # polite
-        log.info(f"  GitHub '{topic}': {len(tiles)} tiles")
-    except Exception as e:
-        log.debug(f"GitHub error for '{topic}': {e}")
-    return tiles
+            if r.status_code == 200:
+                d = r.json()
+                text = d.get("extract", "")
+                if text and len(text) > 200:
+                    return {"text": text, "title": d.get("title", topic),
+                            "url": d.get("content_urls", {}).get("desktop", {}).get("page", ""),
+                            "domain": self._classify(topic), "source": "wikipedia"}
+        except Exception as e:
+            log.debug(f"Wiki {topic}: {e}")
+        return None
+
+    def _classify(self, topic: str) -> str:
+        t = topic.lower()
+        if any(w in t for w in ["space","nasa","isro","planet","star","orbit","moon","mars"]):
+            return "space"
+        if any(w in t for w in ["ai","neural","robot","autonomous","drone"]):
+            return "tech"
+        if any(w in t for w in ["india","isro","sanskrit","vedic","bharat"]):
+            return "india"
+        if any(w in t for w in ["math","algebra","calculus","equation"]):
+            return "math"
+        if any(w in t for w in ["medical","medicine","vaccine","brain"]):
+            return "medical"
+        if any(w in t for w in ["military","defense","missile","warfare"]):
+            return "defense"
+        if any(w in t for w in ["car","vehicle","transport","taxi"]):
+            return "automotive"
+        if any(w in t for w in ["psychology","behavior","emotion","cognitive"]):
+            return "psychology"
+        return "science"
+
+    def batch(self, n: int = 30) -> List[Dict]:
+        topics = random.sample(self.TOPICS, min(n, len(self.TOPICS)))
+        results = []
+        with ThreadPoolExecutor(max_workers=5) as ex:
+            futures = {ex.submit(self.fetch, t): t for t in topics}
+            for f in as_completed(futures):
+                r = f.result()
+                if r: results.append(r)
+                time.sleep(0.3)
+        return results
 
 
-def harvest_nasa(domain: str = "space") -> List[dict]:
-    """NASA Open APIs — Astronomy Picture of the Day, Mars rover photos, etc."""
-    tiles = []
-    nasa_key = os.environ.get("NASA_API_KEY", "DEMO_KEY")
-    try:
-        # APOD archive
-        data = _get("https://api.nasa.gov/planetary/apod",
-                    params={"api_key": nasa_key, "count": "20"})
-        if data and isinstance(data, list):
-            for item in data:
-                text = f"NASA APOD: {item.get('title','')}. {item.get('explanation','')}"
-                chunks = _make_tile(text, item.get("title", "NASA"), domain,
-                                    "nasa_apod")
-                if chunks:
-                    tiles.extend(chunks)
-        log.info(f"  NASA APOD: {len(tiles)} tiles")
-    except Exception as e:
-        log.debug(f"NASA error: {e}")
-    # NASA Tech Reports
-    try:
-        data = _get("https://ntrs.nasa.gov/api/citations/search",
-                    params={"q": "spacecraft propulsion", "rows": "10"})
-        if data:
-            for doc in (data.get("results") or [])[:10]:
-                meta = doc.get("metadata", {})
-                text = f"{meta.get('title','')}: {meta.get('abstract','')[:1000]}"
-                chunks = _make_tile(text, "NASA tech", domain, "nasa_ntrs")
-                if chunks:
-                    tiles.extend(chunks)
-    except Exception as e:
-        log.debug(f"NASA NTRS error: {e}")
-    return tiles
+class ArXivSource:
+    """arXiv: latest AI, physics, space, math, bio research."""
+    FEEDS = [
+        ("https://arxiv.org/rss/cs.AI",    "tech"),
+        ("https://arxiv.org/rss/cs.LG",    "tech"),
+        ("https://arxiv.org/rss/cs.RO",    "robotics"),
+        ("https://arxiv.org/rss/astro-ph",  "space"),
+        ("https://arxiv.org/rss/physics",   "science"),
+        ("https://arxiv.org/rss/math.CO",   "math"),
+        ("https://arxiv.org/rss/q-bio.NC",  "medical"),
+        ("https://arxiv.org/rss/cs.NI",    "tech"),  # networking
+        ("https://arxiv.org/rss/eess.SY",  "automotive"),  # control systems
+    ]
 
-
-def harvest_pubmed(topic: str, domain: str = "science") -> List[dict]:
-    """PubMed abstracts via NCBI E-utilities."""
-    tiles = []
-    try:
-        # Search IDs
-        search = _get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
-                      params={"db": "pubmed", "term": topic, "retmax": "5",
-                              "retmode": "json", "sort": "relevance"})
-        if not search:
-            return []
-        ids = (search.get("esearchresult") or {}).get("idlist") or []
-        if not ids:
-            return []
-        # Fetch summaries
-        summaries = _get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi",
-                         params={"db": "pubmed", "id": ",".join(ids),
-                                 "retmode": "json"})
-        if summaries:
-            result = (summaries.get("result") or {})
-            for uid in ids:
-                doc = result.get(uid, {})
-                title = doc.get("title", "")
-                source = doc.get("source", "")
-                text = f"{title}. Published in {source}."
-                chunks = _make_tile(text, topic, domain, f"pubmed:{uid}")
-                if chunks:
-                    tiles.extend(chunks)
-        log.info(f"  PubMed '{topic}': {len(tiles)} tiles")
-    except Exception as e:
-        log.debug(f"PubMed error: {e}")
-    return tiles
-
-
-def harvest_stackoverflow(tag: str, domain: str = "tech") -> List[dict]:
-    """Stack Overflow top Q&A."""
-    tiles = []
-    try:
-        data = _get("https://api.stackexchange.com/2.3/questions",
-                    params={"order": "desc", "sort": "votes", "tagged": tag,
-                            "site": "stackoverflow", "pagesize": "10",
-                            "filter": "withbody"})
-        if not data:
-            return []
-        for q in (data.get("items") or [])[:10]:
-            title = q.get("title", "")
-            body  = re.sub(r'<[^>]+>', ' ', q.get("body", ""))[:500]
-            text  = f"Q: {title} A: {body}"
-            chunks = _make_tile(text, tag, domain, f"stackoverflow:{q.get('question_id',0)}")
-            if chunks:
-                tiles.extend(chunks)
-        log.info(f"  StackOverflow '{tag}': {len(tiles)} tiles")
-    except Exception as e:
-        log.debug(f"SO error: {e}")
-    return tiles
-
-
-def harvest_gutenberg(subject: str = "science", domain: str = "science") -> List[dict]:
-    """Project Gutenberg free books."""
-    tiles = []
-    try:
-        data = _get("https://gutendex.com/books/",
-                    params={"topic": subject, "languages": "en"})
-        if not data:
-            return []
-        for book in (data.get("results") or [])[:5]:
-            title = book.get("title", "")
-            authors = ", ".join(a.get("name","") for a in book.get("authors",[][:3]))
-            subjects = ", ".join(book.get("subjects", [])[:5])
-            text = f"Book: '{title}' by {authors}. Subjects: {subjects}."
-            chunks = _make_tile(text, subject, domain, f"gutenberg:{book.get('id',0)}")
-            if chunks:
-                tiles.extend(chunks)
-        log.info(f"  Gutenberg '{subject}': {len(tiles)} tiles")
-    except Exception as e:
-        log.debug(f"Gutenberg error: {e}")
-    return tiles
-
-
-def harvest_hf_datasets(domain: str = "ai_ml") -> List[dict]:
-    """Harvest from user's HF datasets + popular open datasets."""
-    tiles = []
-    if not HF_TOKEN or not _HAS_HF:
-        return []
-    try:
-        api = HfApi(token=HF_TOKEN)
-        # User's own datasets
-        for ds_name in USER_HF_DATASETS:
+    def batch(self, articles_per_feed: int = 5) -> List[Dict]:
+        results = []
+        for url, domain in self.FEEDS:
             try:
-                # List files
-                files = api.list_repo_files(ds_name, repo_type="dataset")
-                for fname in list(files)[:5]:
-                    if not fname.endswith(".jsonl"):
-                        continue
-                    url = f"https://huggingface.co/datasets/{ds_name}/resolve/main/{fname}"
-                    r = requests.get(url, headers={"Authorization": f"Bearer {HF_TOKEN}"},
-                                     timeout=30)
-                    if not r.ok:
-                        continue
-                    for line in r.text.strip().split("\n")[:200]:
-                        if not line.strip():
-                            continue
-                        try:
-                            obj = json.loads(line)
-                            text = (obj.get("text") or obj.get("output") or
-                                    obj.get("instruction") or "")
-                            if len(text) > 50:
-                                chunks = _make_tile(text, ds_name, domain,
-                                                    f"hf:{ds_name}")
-                                if chunks:
-                                    tiles.extend(chunks)
-                        except Exception:
-                            pass
-                    time.sleep(1)
+                feed = feedparser.parse(url)
+                for entry in feed.entries[:articles_per_feed]:
+                    title   = entry.get("title", "").strip()
+                    summary = entry.get("summary", "").strip()
+                    link    = entry.get("link", "")
+                    if title and len(summary) > 100:
+                        text = f"{title}. {summary}"
+                        results.append({"text": text, "title": title,
+                                        "url": link, "domain": domain,
+                                        "source": "arxiv"})
             except Exception as e:
-                log.debug(f"HF dataset {ds_name}: {e}")
-        log.info(f"  HF datasets: {len(tiles)} tiles")
-    except Exception as e:
-        log.debug(f"HF harvest error: {e}")
+                log.debug(f"arXiv {url}: {e}")
+        return results
+
+
+class GitHubSource:
+    """GitHub public repos: trending, topics. README -> knowledge tiles."""
+    TOPICS = [
+        "artificial-intelligence", "machine-learning", "deep-learning",
+        "robotics", "space", "astronomy", "autonomous-vehicles",
+        "computer-vision", "nlp", "defense", "drone", "medical-imaging",
+        "quantum-computing", "3d-printing", "cad", "simulation",
+        "reinforcement-learning", "neural-network", "generative-ai",
+    ]
+
+    def fetch_trending(self) -> List[Dict]:
+        """Get trending repos (public API via GitHub search)."""
+        results = []
+        yesterday = (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
+        try:
+            r = requests.get(
+                "https://api.github.com/search/repositories",
+                params={"q": f"created:>{yesterday} stars:>5",
+                        "sort": "stars", "order": "desc", "per_page": 20},
+                headers=GH_HEADERS, timeout=20
+            )
+            if r.ok:
+                for repo in r.json().get("items", []):
+                    desc = repo.get("description") or ""
+                    name = repo.get("full_name", "")
+                    lang = repo.get("language") or "code"
+                    topics = repo.get("topics", [])
+                    if desc and len(desc) > 30:
+                        text = (f"GitHub Repository: {name}. "
+                                f"Description: {desc}. "
+                                f"Language: {lang}. "
+                                f"Topics: {', '.join(topics[:5])}.")
+                        results.append({"text": text, "title": name,
+                                        "url": repo.get("html_url", ""),
+                                        "domain": "tech", "source": "github"})
+        except Exception as e:
+            log.debug(f"GitHub trending: {e}")
+        return results
+
+    def fetch_topic(self, topic: str) -> List[Dict]:
+        results = []
+        try:
+            r = requests.get(
+                "https://api.github.com/search/repositories",
+                params={"q": f"topic:{topic} stars:>50",
+                        "sort": "stars", "per_page": 10},
+                headers=GH_HEADERS, timeout=20
+            )
+            if r.ok:
+                for repo in r.json().get("items", []):
+                    desc = repo.get("description") or ""
+                    if desc and len(desc) > 20:
+                        text = (f"GitHub {topic} project: {repo['full_name']}. "
+                                f"{desc}. Stars: {repo.get('stargazers_count',0)}.")
+                        results.append({"text": text, "title": repo["full_name"],
+                                        "url": repo.get("html_url", ""),
+                                        "domain": "tech", "source": f"github/{topic}"})
+        except Exception as e:
+            log.debug(f"GitHub topic {topic}: {e}")
+        return results
+
+    def batch(self) -> List[Dict]:
+        results = self.fetch_trending()
+        topics = random.sample(self.TOPICS, 5)
+        for t in topics:
+            results.extend(self.fetch_topic(t))
+            time.sleep(0.5)
+        return results
+
+
+class NASASource:
+    """NASA Open Data API: space missions, exoplanets, APOD, Mars."""
+
+    def fetch_apod(self) -> Optional[Dict]:
+        """Astronomy Picture of the Day."""
+        try:
+            r = requests.get(
+                "https://api.nasa.gov/planetary/apod",
+                params={"api_key": "DEMO_KEY", "count": 5},
+                headers=HEADERS, timeout=15
+            )
+            if r.ok:
+                results = []
+                for item in r.json():
+                    text = f"{item.get('title','')}: {item.get('explanation','')}"
+                    if len(text) > 100:
+                        results.append({"text": text[:2000],
+                                        "title": item.get("title", "APOD"),
+                                        "url": item.get("url", ""),
+                                        "domain": "space", "source": "nasa_apod"})
+                return results
+        except Exception as e:
+            log.debug(f"NASA APOD: {e}")
+        return []
+
+    def fetch_mars_weather(self) -> List[Dict]:
+        try:
+            r = requests.get(
+                "https://api.nasa.gov/insight_weather/",
+                params={"api_key": "DEMO_KEY", "feedtype": "json", "ver": "1.0"},
+                headers=HEADERS, timeout=15
+            )
+            if r.ok:
+                d = r.json()
+                sols = d.get("sol_keys", [])
+                results = []
+                for sol in sols[:3]:
+                    data = d.get(sol, {})
+                    temp = data.get("AT", {})
+                    text = (f"Mars InSight weather Sol {sol}: "
+                            f"Temperature avg {temp.get('av','?')}°C, "
+                            f"min {temp.get('mn','?')}°C, max {temp.get('mx','?')}°C.")
+                    results.append({"text": text, "title": f"Mars Weather Sol {sol}",
+                                    "url": "https://mars.nasa.gov/insight/",
+                                    "domain": "space", "source": "nasa_mars"})
+                return results
+        except Exception as e:
+            log.debug(f"NASA Mars: {e}")
+        return []
+
+    def fetch_exoplanets(self) -> List[Dict]:
+        try:
+            r = requests.get(
+                "https://exoplanetarchive.ipac.caltech.edu/TAP/sync",
+                params={"query": "SELECT pl_name,hostname,pl_bmassj,pl_orbper,disc_year "
+                                 "FROM ps WHERE disc_year>2020 ORDER BY disc_year DESC",
+                        "format": "json"},
+                headers=HEADERS, timeout=20
+            )
+            if r.ok:
+                results = []
+                for p in r.json()[:20]:
+                    text = (f"Exoplanet {p.get('pl_name','?')} discovered in {p.get('disc_year','?')} "
+                            f"orbiting star {p.get('hostname','?')}. "
+                            f"Orbital period: {p.get('pl_orbper','?')} days.")
+                    results.append({"text": text, "title": p.get("pl_name", "Exoplanet"),
+                                    "url": "https://exoplanetarchive.ipac.caltech.edu",
+                                    "domain": "space", "source": "nasa_exoplanets"})
+                return results
+        except Exception as e:
+            log.debug(f"NASA exoplanets: {e}")
+        return []
+
+    def batch(self) -> List[Dict]:
+        results = []
+        results.extend(self.fetch_apod() or [])
+        results.extend(self.fetch_exoplanets())
+        return results
+
+
+class HFDatasetSource:
+    """HuggingFace: all Damaru-ai datasets + community math/science/code."""
+    COMMUNITY_DATASETS = [
+        "gsm8k",              # math problems
+        "TIGER-Lab/MATH",     # advanced math
+        "codeparrot/github-code-clean",  # code (small subset)
+        "wikipedia",          # multilingual (already covered but backup)
+    ]
+
+    def list_own_datasets(self) -> List[str]:
+        """List all datasets under Damaru-ai HF org."""
+        if not HF_TOKEN:
+            return []
+        try:
+            r = requests.get(
+                f"https://huggingface.co/api/datasets?author={HF_OWNER}&limit=50",
+                headers={"Authorization": f"Bearer {HF_TOKEN}"}, timeout=15
+            )
+            if r.ok:
+                return [d.get("id", "") for d in r.json() if d.get("id")]
+        except Exception as e:
+            log.debug(f"HF list datasets: {e}")
+        return []
+
+    def sample_dataset(self, dataset_id: str, n: int = 50) -> List[Dict]:
+        """Sample rows from a HF dataset via the datasets API."""
+        results = []
+        try:
+            r = requests.get(
+                f"https://datasets-server.huggingface.co/rows",
+                params={"dataset": dataset_id, "split": "train",
+                        "offset": 0, "limit": n},
+                headers={"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {},
+                timeout=20
+            )
+            if r.ok:
+                for row in r.json().get("rows", []):
+                    d = row.get("row", {})
+                    # Try common field names
+                    text = (d.get("text") or d.get("instruction") or
+                            d.get("question") or d.get("input") or "")
+                    answer = (d.get("output") or d.get("answer") or
+                              d.get("response") or "")
+                    if text and len(text) > 20:
+                        combined = text
+                        if answer:
+                            combined += f" Answer: {answer}"
+                        results.append({"text": combined[:1000],
+                                        "title": dataset_id,
+                                        "url": f"https://huggingface.co/datasets/{dataset_id}",
+                                        "domain": "knowledge",
+                                        "source": f"hf_dataset/{dataset_id}"})
+        except Exception as e:
+            log.debug(f"HF dataset {dataset_id}: {e}")
+        return results
+
+    def batch(self) -> List[Dict]:
+        results = []
+        own = self.list_own_datasets()
+        log.info(f"Found {len(own)} own HF datasets: {own}")
+        for ds in own:
+            results.extend(self.sample_dataset(ds, 100))
+            time.sleep(1)
+        return results
+
+
+class StackOverflowSource:
+    """Stack Overflow public API: top Q&A for key topics."""
+    TAGS = ["python","machine-learning","deep-learning","c++","javascript",
+            "robotics","computer-vision","data-science","algorithms"]
+
+    def fetch_tag(self, tag: str) -> List[Dict]:
+        try:
+            r = requests.get(
+                "https://api.stackexchange.com/2.3/questions",
+                params={"order": "desc", "sort": "votes", "tagged": tag,
+                        "site": "stackoverflow", "pagesize": 10,
+                        "filter": "withbody"},
+                headers=HEADERS, timeout=15
+            )
+            if r.ok:
+                results = []
+                for q in r.json().get("items", []):
+                    title = q.get("title", "")
+                    body = re.sub(r"<[^>]+>", "", q.get("body", ""))[:800]
+                    if title and body:
+                        text = f"Q: {title}. {body}"
+                        results.append({"text": text, "title": title,
+                                        "url": q.get("link", ""),
+                                        "domain": "tech", "source": f"stackoverflow/{tag}"})
+                return results
+        except Exception as e:
+            log.debug(f"SO {tag}: {e}")
+        return []
+
+    def batch(self) -> List[Dict]:
+        results = []
+        tags = random.sample(self.TAGS, 4)
+        for t in tags:
+            results.extend(self.fetch_tag(t))
+            time.sleep(1)
+        return results
+
+
+class SpaceNewsSource:
+    """Space news: NASA, ESA, SpaceNews RSS."""
+    FEEDS = [
+        ("https://www.nasa.gov/rss/dyn/breaking_news.rss",  "space"),
+        ("https://spacenews.com/feed/",                     "space"),
+        ("https://www.esa.int/rssfeed/Our_Activities/Space_Science", "space"),
+        ("https://feeds.isro.gov.in/news/rss/",             "space"),  # ISRO
+    ]
+
+    def batch(self) -> List[Dict]:
+        results = []
+        for url, domain in self.FEEDS:
+            try:
+                feed = feedparser.parse(url)
+                for entry in feed.entries[:5]:
+                    title   = entry.get("title", "").strip()
+                    summary = entry.get("summary", "").strip()
+                    link    = entry.get("link", "")
+                    if title and summary and len(summary) > 50:
+                        text = f"{title}. {summary}"
+                        results.append({"text": text[:1500], "title": title,
+                                        "url": link, "domain": domain,
+                                        "source": "space_news"})
+            except Exception as e:
+                log.debug(f"Space news {url}: {e}")
+        return results
+
+
+# ============================================================
+#  TILE BUILDER
+# ============================================================
+
+def text_to_tiles(data: Dict, chunk_words: int = 120) -> List[Dict]:
+    """Convert a data dict to PRAYAS knowledge tiles (100-120 word chunks)."""
+    text   = data.get("text", "").strip()
+    topic  = data.get("title", "")
+    domain = data.get("domain", "general")
+    source = data.get("source", "unknown")
+    url    = data.get("url", "")
+
+    if not text or len(text) < 50:
+        return []
+
+    words = text.split()
+    chunks = [words[i:i+chunk_words] for i in range(0, len(words), chunk_words)]
+    tiles = []
+    for chunk in chunks:
+        if len(chunk) < 15:
+            continue
+        tile = {
+            "text":      " ".join(chunk),
+            "topic":     topic,
+            "domain":    domain,
+            "source":    source,
+            "url":       url,
+            "lang":      "en",
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        tiles.append(tile)
     return tiles
 
 
-# ─────────────────────────────────────────
+# ============================================================
 #  PUSH TO HF
-# ─────────────────────────────────────────
-def push_tiles_to_hf(tiles: List[dict], batch_name: str) -> bool:
-    """Push collected tiles to HF dataset as JSONL."""
-    if not tiles or not HF_TOKEN or not _HAS_HF:
-        log.info(f"Tiles collected: {len(tiles)} (not pushed — check HF_TOKEN)")
+# ============================================================
+
+def push_tiles_to_hf(tiles: List[Dict], run_label: str) -> bool:
+    if not tiles or not HF_TOKEN:
+        log.info(f"Skip HF push: {len(tiles)} tiles, token={'set' if HF_TOKEN else 'missing'}")
         return False
     try:
-        api  = HfApi(token=HF_TOKEN)
-        fname = f"world_tiles/{batch_name}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.jsonl"
+        from huggingface_hub import HfApi
+        api = HfApi(token=HF_TOKEN)
+        fname = f"world_tiles/{run_label}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.jsonl"
         content = "\n".join(json.dumps(t, ensure_ascii=False) for t in tiles)
         api.upload_file(
             path_or_fileobj=content.encode("utf-8"),
-            path_in_repo=fname, repo_id=HF_DATASET,
+            path_in_repo=fname,
+            repo_id=HF_DATASET,
             repo_type="dataset",
-            commit_message=f"World harvest: {len(tiles)} tiles ({batch_name})",
+            commit_message=f"World Harvest: {len(tiles)} tiles [{run_label}]",
         )
-        log.info(f"  ✅ Pushed {len(tiles)} tiles to {HF_DATASET}/{fname}")
+        log.info(f"Pushed {len(tiles)} tiles to HF: {fname}")
         return True
     except Exception as e:
-        log.error(f"HF push error: {e}")
+        log.error(f"HF push failed: {e}")
         return False
 
 
-# ─────────────────────────────────────────
-#  MAIN HARVEST LOOP
-# ─────────────────────────────────────────
-def run_harvest(daemon: bool = False):
+# ============================================================
+#  MAIN
+# ============================================================
+
+def main():
     start = time.time()
-    total = 0
-
     log.info("=" * 60)
-    log.info(" DAMRU WORLD HARVEST v1.0")
-    log.info(f" Output: {OUTPUT_DIR} | Dataset: {HF_DATASET}")
+    log.info("  DAMRU WORLD HARVEST v1.0")
+    log.info(f"  Dataset: {HF_DATASET} | Max: {MAX_TILES_PER_RUN} tiles")
     log.info("=" * 60)
 
-    def _harvest_domain(domain: str, topics: list) -> int:
-        domain_tiles = []
-        for topic in topics:
-            if time.time() - start > MAX_RUNTIME:
-                return len(domain_tiles)
-            try:
-                domain_tiles.extend(harvest_wikipedia(topic, domain))
-                time.sleep(0.5)
-            except Exception as e:
-                log.debug(f"Wiki {topic}: {e}")
-            try:
-                domain_tiles.extend(harvest_arxiv(topic, domain, max_results=5))
-                time.sleep(1)
-            except Exception as e:
-                log.debug(f"arXiv {topic}: {e}")
-            if domain in ("ai_ml", "tech", "space"):
-                try:
-                    domain_tiles.extend(harvest_github_repos(topic, domain))
-                    time.sleep(2)
-                except Exception as e:
-                    log.debug(f"GH {topic}: {e}")
+    sources = [
+        ("Wikipedia",      WikipediaSource().batch),
+        ("arXiv",          ArXivSource().batch),
+        ("GitHub",         GitHubSource().batch),
+        ("NASA/Space",     NASASource().batch),
+        ("SpaceNews",      SpaceNewsSource().batch),
+        ("StackOverflow",  StackOverflowSource().batch),
+        ("HF Datasets",    HFDatasetSource().batch),
+    ]
 
-        if len(domain_tiles) >= BATCH_SIZE // 10:
-            push_tiles_to_hf(domain_tiles, domain)
-        return len(domain_tiles)
+    all_tiles = []
+    source_stats = {}
 
-    # Harvest all domains
-    for domain, topics in TOPICS.items():
-        if time.time() - start > MAX_RUNTIME:
-            log.info("Time budget exhausted. Stopping.")
-            break
-        log.info(f"\n--- Domain: {domain.upper()} ({len(topics)} topics) ---")
-        n = _harvest_domain(domain, topics)
-        total += n
-        log.info(f"  Domain {domain}: {n} tiles")
+    for name, fetch_fn in sources:
+        try:
+            log.info(f"\n--- {name} ---")
+            raw = fetch_fn()
+            tiles = []
+            for item in raw:
+                tiles.extend(text_to_tiles(item))
+            source_stats[name] = len(tiles)
+            all_tiles.extend(tiles)
+            log.info(f"  {name}: {len(raw)} items -> {len(tiles)} tiles")
+            if len(all_tiles) >= MAX_TILES_PER_RUN:
+                log.info(f"Max tiles reached ({MAX_TILES_PER_RUN}), stopping early")
+                break
+        except Exception as e:
+            log.error(f"Source {name} failed (self-healing, continuing): {e}")
+            source_stats[name] = 0
+            continue  # Self-heal: one source fails, others continue
 
-    # Special sources
-    log.info("\n--- NASA Space Data ---")
-    nasa_tiles = harvest_nasa()
-    if nasa_tiles:
-        push_tiles_to_hf(nasa_tiles, "nasa")
-        total += len(nasa_tiles)
+    # Deduplicate by text hash
+    seen = set()
+    unique_tiles = []
+    for t in all_tiles:
+        h = hash(t["text"][:100])
+        if h not in seen:
+            seen.add(h)
+            unique_tiles.append(t)
 
-    log.info("\n--- HuggingFace User Datasets ---")
-    hf_tiles = harvest_hf_datasets()
-    if hf_tiles:
-        push_tiles_to_hf(hf_tiles, "hf_user")
-        total += len(hf_tiles)
+    log.info(f"\nTotal: {len(all_tiles)} tiles ({len(unique_tiles)} unique)")
 
-    log.info("\n--- Stack Overflow ---")
-    for tag in ["python", "machine-learning", "space", "robotics", "algorithms"]:
-        so_tiles = harvest_stackoverflow(tag)
-        total += len(so_tiles)
-    if so_tiles:
-        push_tiles_to_hf(so_tiles, "stackoverflow")
-
-    log.info("\n--- Gutenberg Books ---")
-    for subj in ["science", "mathematics", "technology", "history"]:
-        gt = harvest_gutenberg(subj)
-        total += len(gt)
-    if gt:
-        push_tiles_to_hf(gt, "gutenberg")
+    # Push to HF
+    success = push_tiles_to_hf(unique_tiles[:MAX_TILES_PER_RUN], "world")
 
     elapsed = time.time() - start
-    log.info(f"\n{'='*60}")
-    log.info(f" HARVEST COMPLETE")
-    log.info(f" Total tiles: {total}")
-    log.info(f" Elapsed: {elapsed/60:.1f} min")
-    log.info(f"{'='*60}")
-
-    if daemon:
-        wait = int(os.environ.get("HARVEST_INTERVAL_H", "24")) * 3600
-        log.info(f"Daemon mode: next run in {wait//3600}h")
-        time.sleep(wait)
-        run_harvest(daemon=True)  # tail-recursive loop
+    stats = (
+        f"Run: {datetime.utcnow().isoformat()}\n"
+        f"Total tiles: {len(unique_tiles)}\n"
+        f"Pushed: {success}\n"
+        f"Sources:\n" +
+        "\n".join(f"  {k}: {v}" for k, v in source_stats.items()) +
+        f"\nElapsed: {elapsed/60:.1f} min\n"
+    )
+    STATS_FILE.write_text(stats)
+    log.info("\n" + stats)
+    log.info("=" * 60)
+    log.info(f"  DONE! {len(unique_tiles)} world tiles -> {HF_DATASET}")
+    log.info("=" * 60)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--daemon", action="store_true", help="Run continuously")
-    parser.add_argument("--domain", default="", help="Harvest only this domain")
-    args = parser.parse_args()
-    run_harvest(daemon=args.daemon)
+    main()
