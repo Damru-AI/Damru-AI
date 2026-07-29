@@ -1,0 +1,42 @@
+name: Damru Curious Learning Engine
+
+on:
+  schedule:
+    # Har 6 ghante chalega -- GitHub Actions FREE for public repos!
+    - cron: '0 */6 * * *'
+  workflow_dispatch:  # Manual trigger bhi kar sako
+
+jobs:
+  curious-learn:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340  # ~5.6 hours max
+    
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -q requests beautifulsoup4 feedparser huggingface_hub datasets lxml
+
+      - name: Run Curious Engine (1 cycle batch)
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_DATASET: "Damaru-ai/damru-knowledge"
+          LLAMA_URL: ""  # GitHub Actions pe local LLM nahi -- HF router use hoga
+          SEARXNG_URL: ""  # No SearXNG -- web scraping use hoga
+          RUN_MODE: "github_actions"  # Special mode: limited cycles
+          MAX_CYCLES: "20"  # 20 cycles per run
+          KAGGLE_TRIGGER_H: "999"  # Kaggle trigger alag workflow se
+        run: python damru_curious_engine_actions.py
+
+      - name: Show stats
+        run: |
+          echo "=== Damru Curious Engine Run Complete ==="
+          cat /tmp/damru_stats.txt 2>/dev/null || echo "No stats file found"
