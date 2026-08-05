@@ -1,0 +1,24 @@
+# Step 2 -- Live Internet A->E : optional backends.
+# Install only what you want to enable; every layer degrades gracefully.
+# Damru works even if none of these are installed (Wikipedia + Jina + DDG are keyless).
+
+# --- base HTTP + HTML parse (recommended, very light) ---
+requests
+beautifulsoup4
+lxml
+
+# --- B: READ layer (pick one or more) ---
+trafilatura            # fast, clean article extraction
+# crawl4ai             # best-quality markdown (heavy; needs playwright chromium)
+
+# --- C: BROWSE layer (JS-heavy sites, logins, multi-step) ---
+# playwright           # after install run:  python -m playwright install chromium
+
+# --- D: WATCH layer (video -> text) ---
+yt-dlp                 # pulls captions fast (no GPU needed)
+# faster-whisper       # only when a video has NO captions (CPU int8 works)
+
+# --- A: SEARCH ---
+# SearXNG is a self-hosted meta-search SERVICE (run via Docker), not a pip package.
+# Set SEARXNG_URL=... to use it. Tavily/Brave are API keys (TAVILY_KEY / BRAVE_KEY).
+# Wikipedia + DuckDuckGo(lite) + Jina Reader (r.jina.ai) need no key.
