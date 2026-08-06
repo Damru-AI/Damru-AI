@@ -1,0 +1,23 @@
+# Step 3 -- Damru Live : realistic AI video chat (optional backends).
+# Text + voice works on plain CPU with edge-tts alone. Everything degrades gracefully;
+# if nothing here is installed, /live/text still returns Damru's reply (no audio).
+
+# --- TTS (voice OUT) : edge-tts = best free neural voice (hi-IN + en-IN) ---
+edge-tts
+gTTS
+# pyttsx3                 # fully offline robotic fallback
+# TTS                     # Coqui XTTS-v2 voice-clone (heavy; GPU recommended)
+
+# --- STT (voice IN) ---
+faster-whisper            # CPU int8 works fine
+soundfile
+numpy
+
+# --- Talking-head video (advanced, GPU) : set LIVE_TALKINGHEAD=wav2lip|musetalk|sadtalker ---
+# These are git projects (not simple pip installs) + need model weights.
+# Without them the frontend animates the avatar using audio-driven lip-sync.
+opencv-python-headless
+
+# ENV: LIVE_TTS=auto|edge|gtts|pyttsx3|xtts|off  LIVE_VOICE=en-IN-NeerjaNeural
+#      LIVE_VOICE_HI=hi-IN-SwaraNeural  LIVE_STT_MODEL=base  LIVE_LANG=en
+#      LIVE_TALKINGHEAD=none  LIVE_AVATAR=<url>  LIVE_PERSONA=<system prompt>

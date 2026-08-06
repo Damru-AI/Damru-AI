@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8'/>
+<meta name='viewport' content='width=device-width, initial-scale=1'/>
+<title>Damru Live</title>
+<style>
+:root{--glow:#26d0ce;--bg:#0b0f14;--card:#121a22;}
+*{box-sizing:border-box;font-family:system-ui,Segoe UI,Roboto,sans-serif}
+body{margin:0;background:radial-gradient(circle at 50% 20%,#12202b,#0b0f14 70%);color:#e6f1f5;min-height:100vh;display:flex;flex-direction:column;align-items:center}
+header{font-size:26px;font-weight:800;margin:18px 0 6px;letter-spacing:.5px}
+header span{color:var(--glow)}
+#face{border-radius:20px;background:#0a0d12aa;box-shadow:0 0 40px #26d0ce33;margin:6px 0}
+#caption{width:min(92vw,460px);min-height:70px;background:var(--card);border-radius:14px;padding:12px 16px;margin:8px 0}
+#you{color:#9fb3bd;font-size:14px;margin-bottom:6px}
+#damru{font-size:17px;line-height:1.45}
+#controls{display:flex;gap:8px;width:min(92vw,460px);margin:6px 0}
+#text{flex:1;padding:12px;border-radius:12px;border:1px solid #26d0ce44;background:#0e161d;color:#e6f1f5;font-size:15px}
+button{border:none;border-radius:12px;padding:12px 16px;font-weight:700;cursor:pointer;background:#1c2a35;color:#e6f1f5}
+#mic{background:linear-gradient(135deg,#26d0ce,#1a9c9a);color:#04211f;min-width:150px}
+#mic.rec{background:linear-gradient(135deg,#ff5a5a,#c62828);color:#fff;animation:pulse 1s infinite}
+#send{background:#26d0ce;color:#04211f}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 #ff5a5a55}50%{box-shadow:0 0 0 12px #ff5a5a00}}
+#status{font-size:13px;color:#7d94a0;margin:6px 0}
+details{width:min(92vw,460px);background:var(--card);border-radius:12px;padding:8px 14px;margin-bottom:24px}
+label{display:block;margin:8px 0;font-size:14px}
+details input[type=text]{width:100%;padding:8px;border-radius:8px;border:1px solid #26d0ce44;background:#0e161d;color:#e6f1f5}
+</style>
+</head>
+<body>
+<header>&#128047; Damru <span>Live</span></header>
+<canvas id='face' width='360' height='360'></canvas>
+<div id='caption'><div id='you'></div><div id='damru'>Namaste! Main Damru hoon. Mic dabá ke ya type karke baat karo.</div></div>
+<div id='controls'>
+  <button id='mic'>&#127908; Hold to talk</button>
+  <input id='text' placeholder='ya type karo...'/>
+  <button id='send'>Send</button>
+</div>
+<div id='status'>connecting...</div>
+<details><summary>&#9881; Settings</summary>
+  <label>API base <input id='api' type='text'/></label>
+  <label><input type='checkbox' id='video'/> Request talking-head video (needs GPU backend)</label>
+</details>
+<audio id='player' crossorigin='anonymous'></audio>
+<script>
+var $=function(s){return document.querySelector(s)};
+var API=location.origin;
+$('#api').value=API;
+$('#api').onchange=function(e){API=e.target.value.trim().replace(/\/$/,'');connect();};
+var player=$('#player');
+var ws=null, emotion='neutral', mouth=0, targetMouth=0;
+var audioCtx=null, analyser=null, srcNode=null, dataArr=null, rafPlaying=false;
+
+var EMO={
+ neutral:{glow:'#26d0ce',brow:0,curve:0},
+ happy:{glow:'#31d0a0',brow:-4,curve:14},
+ excited:{glow:'#ffd54a',brow:-6,curve:20},
+ sad:{glow:'#5b78c9',brow:6,curve:-12},
+ angry:{glow:'#ff5a5a',brow:10,curve:-6},
+ curious:{glow:'#b06bff',brow:-2,curve:6}
+};
+var cv=$('#face'), cx=cv.getContext('2d');
+function drawFace(){
+ var e=EMO[emotion]||EMO.neutral;
+ cx.clearRect(0,0,360,360);
+ var grd=cx.createRadialGradient(180,180,40,180,180,190);
+ grd.addColorStop(0,e.glow+'55'); grd.addColorStop(1,'#0b0f1400');
+ cx.fillStyle=grd; cx.fillRect(0,0,360,360);
+ cx.fillStyle='#12202b'; cx.strokeStyle=e.glow; cx.lineWidth=3;
+ cx.beginPath(); cx.arc(180,180,110,0,7); cx.fill(); cx.stroke();
+ cx.fillStyle=e.glow;
+ cx.beginPath(); cx.arc(140,160,12,0,7); cx.fill();
+ cx.beginPath(); cx.arc(220,160,12,0,7); cx.fill();
+ cx.strokeStyle=e.glow; cx.lineWidth=5;
+ cx.beginPath(); cx.moveTo(124,140+e.brow); cx.lineTo(156,140-e.brow); cx.stroke();
+ cx.beginPath(); cx.moveTo(204,140-e.brow); cx.lineTo(236,140+e.brow); cx.stroke();
+ var w=70, openH=6+mouth*46, cy=225;
+ cx.fillStyle='#0a0d12'; cx.strokeStyle=e.glow; cx.lineWidth=4;
+ cx.beginPath();
+ cx.moveTo(180-w,cy);
+ cx.quadraticCurveTo(180,cy-e.curve,180+w,cy);
+ cx.quadraticCurveTo(180,cy+openH+(e.curve>0?e.curve:0),180-w,cy);
+ cx.closePath(); cx.fill(); cx.stroke();
+}
+function loop(){ mouth+=(targetMouth-mouth)*0.4; drawFace(); requestAnimationFrame(loop); }
+loop();
+
+function setStatus(t){ $('#status').textContent=t; }
+function wsURL(){ return API.replace(/^http/,'ws')+'/live/ws'; }
+function connect(){
+ try{ if(ws) ws.close(); }catch(e){}
+ try{ ws=new WebSocket(wsURL()); }catch(e){ setStatus('ws unavailable, using POST'); return; }
+ ws.onopen=function(){ setStatus('connected (live)'); };
+ ws.onclose=function(){ setStatus('disconnected - retry in 3s'); setTimeout(connect,3000); };
+ ws.onerror=function(){ setStatus('ws error - POST fallback active'); };
+ ws.onmessage=function(ev){ var m=JSON.parse(ev.data); if(m.type==='reply'){ handleReply(m); } else if(m.type==='stage'){ setStatus(m.stage+'...'); } };
+}
+function sendText(t){
+ if(!t) return;
+ $('#you').textContent='You: '+t; $('#damru').textContent='...';
+ var payload={type:'text',text:t,want_video:$('#video').checked};
+ if(ws && ws.readyState===1){ ws.send(JSON.stringify(payload)); }
+ else { postFallback('/live/text',{text:t,want_video:$('#video').checked}); }
+}
+function postFallback(path,body){
+ fetch(API+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+  .then(function(r){return r.json();}).then(handleReply).catch(function(e){ setStatus('error: '+e.message); });
+}
+function handleReply(res){
+ if(res.transcript){ $('#you').textContent='You: '+res.transcript; }
+ $('#damru').textContent='Damru: '+(res.reply||'');
+ emotion=res.emotion||'neutral';
+ if(res.audio_b64){ playAudio(res.audio_b64,res.audio_mime||'audio/mpeg'); } else { targetMouth=0; }
+ setStatus('connected (live)');
+}
+function playAudio(b64,mime){
+ player.src='data:'+mime+';base64,'+b64;
+ if(!audioCtx){
+  audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+  srcNode=audioCtx.createMediaElementSource(player);
+  analyser=audioCtx.createAnalyser(); analyser.fftSize=256;
+  dataArr=new Uint8Array(analyser.frequencyBinCount);
+  srcNode.connect(analyser); analyser.connect(audioCtx.destination);
+ }
+ audioCtx.resume(); player.play();
+ if(!rafPlaying){ rafPlaying=true; syncMouth(); }
+}
+function syncMouth(){
+ if(player.paused||player.ended){ targetMouth=0; rafPlaying=false; return; }
+ analyser.getByteTimeDomainData(dataArr);
+ var sum=0; for(var i=0;i<dataArr.length;i++){ var x=(dataArr[i]-128)/128; sum+=x*x; }
+ var rms=Math.sqrt(sum/dataArr.length);
+ targetMouth=Math.min(1,rms*3.5);
+ requestAnimationFrame(syncMouth);
+}
+player.onended=function(){ targetMouth=0; };
+
+var rec=null, chunks=[];
+function initMic(){
+ if(!navigator.mediaDevices){ setStatus('mic API not available'); return; }
+ navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
+  try{ rec=new MediaRecorder(stream,{mimeType:'audio/webm'}); }catch(e){ rec=new MediaRecorder(stream); }
+  rec.ondataavailable=function(e){ chunks.push(e.data); };
+  rec.onstop=function(){
+   var blob=new Blob(chunks,{type:'audio/webm'}); chunks=[];
+   blobB64(blob).then(function(b64){
+    $('#you').textContent='You: ...'; $('#damru').textContent='...';
+    var payload={type:'turn',audio_b64:b64,mime:'audio/webm',want_video:$('#video').checked};
+    if(ws && ws.readyState===1){ ws.send(JSON.stringify(payload)); }
+    else { postFallback('/live/turn',{audio_b64:b64,mime:'audio/webm'}); }
+   });
+  };
+ }).catch(function(e){ setStatus('mic blocked: '+e.message); });
+}
+function blobB64(blob){ return new Promise(function(res){ var r=new FileReader(); r.onloadend=function(){ res(r.result.split(',')[1]); }; r.readAsDataURL(blob); }); }
+var mic=$('#mic');
+function startRec(){ if(rec && rec.state==='inactive'){ chunks=[]; rec.start(); mic.classList.add('rec'); setStatus('listening...'); } }
+function stopRec(){ if(rec && rec.state==='recording'){ rec.stop(); mic.classList.remove('rec'); } }
+mic.onmousedown=startRec; mic.onmouseup=stopRec; mic.onmouseleave=stopRec;
+mic.ontouchstart=function(e){ e.preventDefault(); startRec(); };
+mic.ontouchend=function(e){ e.preventDefault(); stopRec(); };
+$('#send').onclick=function(){ sendText($('#text').value.trim()); $('#text').value=''; };
+$('#text').onkeydown=function(e){ if(e.key==='Enter'){ sendText($('#text').value.trim()); $('#text').value=''; } };
+initMic(); connect();
+</script>
+</body>
+</html>
