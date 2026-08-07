@@ -116,6 +116,7 @@ def train():
     from trl import SFTTrainer, SFTConfig
     from unsloth import is_bfloat16_supported
     from unsloth.chat_templates import train_on_responses_only
+    import inspect
 
     model, tok = load_model()
     model = add_lora(model)
@@ -123,7 +124,13 @@ def train():
     print("train rows:", len(train_ds), "| val rows:",
           (len(val_ds) if val_ds is not None else 0), flush=True)
 
-    args = SFTConfig(
+    # --- version-robust SFTConfig -------------------------------------------
+    # TRL/Transformers APIs drift a lot. Newer TRL (Transformers 5.x) renamed
+    # SFTConfig's `max_seq_length` -> `max_length` and dropped a few old kwargs.
+    # Build every kwarg we want, then keep ONLY the ones THIS installed SFTConfig
+    # actually accepts, so a future version bump can never crash the run again.
+    _sft_ok = set(inspect.signature(SFTConfig.__init__).parameters)
+    _sft_kwargs = dict(
         output_dir="damru-14b-lora",
         num_train_epochs=CFG["epochs"],
         per_device_train_batch_size=CFG["batch"],
@@ -132,15 +139,35 @@ def train():
         lr_scheduler_type="cosine", logging_steps=20,
         optim="adamw_8bit", seed=SEED,
         bf16=is_bfloat16_supported(), fp16=not is_bfloat16_supported(),
-        max_seq_length=CFG["max_seq"], packing=False,
+        packing=False,
         dataset_text_field="text",
         eval_strategy=("steps" if val_ds is not None else "no"),
         eval_steps=int(os.environ.get("EVAL_STEPS") or "500"),
         save_steps=int(os.environ.get("SAVE_STEPS") or "500"),
         report_to="none",
     )
-    trainer = SFTTrainer(model=model, tokenizer=tok, train_dataset=train_ds,
-                         eval_dataset=val_ds, args=args)
+    # sequence-length kwarg moved: max_seq_length (old TRL) -> max_length (new TRL)
+    if "max_seq_length" in _sft_ok:
+        _sft_kwargs["max_seq_length"] = CFG["max_seq"]
+    elif "max_length" in _sft_ok:
+        _sft_kwargs["max_length"] = CFG["max_seq"]
+    # older transformers spelled it evaluation_strategy instead of eval_strategy
+    if "eval_strategy" not in _sft_ok and "evaluation_strategy" in _sft_ok:
+        _sft_kwargs["evaluation_strategy"] = _sft_kwargs.pop("eval_strategy")
+    # finally drop anything this installed version does not accept (never crash on a kwarg)
+    _sft_kwargs = {k: v for k, v in _sft_kwargs.items() if k in _sft_ok}
+    args = SFTConfig(**_sft_kwargs)
+
+    # SFTTrainer renamed `tokenizer` -> `processing_class` in newer TRL; use what exists.
+    _tr_ok = set(inspect.signature(SFTTrainer.__init__).parameters)
+    if "processing_class" in _tr_ok:
+        _tok_kw = "processing_class"
+    elif "tokenizer" in _tr_ok:
+        _tok_kw = "tokenizer"
+    else:
+        _tok_kw = "processing_class"
+    trainer = SFTTrainer(model=model, train_dataset=train_ds,
+                         eval_dataset=val_ds, args=args, **{_tok_kw: tok})
     # COMPLETION-ONLY: mask the user turn, learn only the assistant answer (Qwen ChatML).
     trainer = train_on_responses_only(
         trainer, instruction_part="<|im_start|>user\n",
