@@ -1,0 +1,25 @@
+name: Damru Space Keep-Warm
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: damru-keep-warm
+  cancel-in-progress: true
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Wake Damru Space (prevent cold-start)
+        run: |
+          set +e
+          for i in 1 2 3; do
+            code=$(curl -sS -m 60 -o /dev/null -w "%{http_code}" "https://damaru-ai-damru.hf.space/health")
+            echo "attempt $i -> health:$code"
+            if [ "$code" = "200" ]; then echo "Space warm"; break; fi
+            sleep 10
+          done
+          exit 0
