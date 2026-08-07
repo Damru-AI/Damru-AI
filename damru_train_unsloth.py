@@ -7,6 +7,7 @@ FIX:   group_by_length removed (deprecated in new trl/transformers)
 FIX:   SFTConfig used instead of TrainingArguments (correct API)
 FIX:   Smart dataset sampling (11M rows -> sample wisely)
 FIX:   T4 x2 VRAM optimized settings for 14B model
+FIX:   version-robust SFTConfig/SFTTrainer (works on new TRL / Transformers 5.x)
 
 HOW TO RUN (Kaggle):
   1. Kaggle -> New Notebook
@@ -155,8 +156,9 @@ ds = ds.map(fmt, remove_columns=["messages"])
 ds = ds.filter(lambda x: len(x["text"]) > 50)
 print(f"[OK] After format & filter: {len(ds):,} examples ready")
 
-# ========== 4. Train (SFTConfig -- no group_by_length) ==========
+# ========== 4. Train (version-robust SFTConfig -- no group_by_length) ==========
 print("[STEP 5] Starting training (14B QLoRA)...")
+import inspect
 from trl import SFTTrainer, SFTConfig
 
 # T4 x2 = 2x 14.5GB = 29GB total VRAM
@@ -164,34 +166,49 @@ from trl import SFTTrainer, SFTConfig
 MAX_STEPS = int((len(ds) / (2 * 4)) * EPOCHS)  # approx
 print(f"[CONFIG] Approx training steps: {MAX_STEPS}")
 
-trainer = SFTTrainer(
-    model         = model,
-    tokenizer     = tokenizer,
-    train_dataset = ds,
-    args          = SFTConfig(
-        dataset_text_field          = "text",
-        max_seq_length              = MAX_SEQ,
-        packing                     = False,   # False is safer for 14B on T4x2
-        dataset_num_proc            = 2,
-        per_device_train_batch_size = 2,
-        gradient_accumulation_steps = 4,       # effective batch = 16
-        warmup_steps                = 20,
-        num_train_epochs            = EPOCHS,
-        learning_rate               = 2e-4,
-        logging_steps               = 10,
-        optim                       = "adamw_8bit",
-        weight_decay                = 0.01,
-        lr_scheduler_type           = "cosine",
-        seed                        = 3407,
-        output_dir                  = OUT_DIR,
-        save_strategy               = "steps",
-        save_steps                  = 200,
-        fp16                        = not torch.cuda.is_bf16_supported(),
-        bf16                        = torch.cuda.is_bf16_supported(),
-        report_to                   = "none",
-        # NOTE: group_by_length REMOVED -- deprecated in transformers>=4.46
-    ),
+# --- version-robust SFTConfig (max_seq_length -> max_length on new TRL) ------
+# Newer TRL (Transformers 5.x) renamed SFTConfig's max_seq_length -> max_length
+# and dropped some old kwargs. Build every kwarg we want, then keep ONLY the ones
+# THIS installed SFTConfig actually accepts -- prevents the TypeError crash.
+_sft_ok = set(inspect.signature(SFTConfig.__init__).parameters)
+_sft_kwargs = dict(
+    dataset_text_field          = "text",
+    packing                     = False,   # False is safer for 14B on T4x2
+    dataset_num_proc            = 2,
+    per_device_train_batch_size = 2,
+    gradient_accumulation_steps = 4,       # effective batch = 16
+    warmup_steps                = 20,
+    num_train_epochs            = EPOCHS,
+    learning_rate               = 2e-4,
+    logging_steps               = 10,
+    optim                       = "adamw_8bit",
+    weight_decay                = 0.01,
+    lr_scheduler_type           = "cosine",
+    seed                        = 3407,
+    output_dir                  = OUT_DIR,
+    save_strategy               = "steps",
+    save_steps                  = 200,
+    fp16                        = not torch.cuda.is_bf16_supported(),
+    bf16                        = torch.cuda.is_bf16_supported(),
+    report_to                   = "none",
+    # NOTE: group_by_length REMOVED -- deprecated in transformers>=4.46
 )
+if "max_seq_length" in _sft_ok:
+    _sft_kwargs["max_seq_length"] = MAX_SEQ
+elif "max_length" in _sft_ok:
+    _sft_kwargs["max_length"] = MAX_SEQ
+_sft_kwargs = {k: v for k, v in _sft_kwargs.items() if k in _sft_ok}
+sft_args = SFTConfig(**_sft_kwargs)
+
+# --- version-robust SFTTrainer (tokenizer -> processing_class on new TRL) ----
+_tr_ok = set(inspect.signature(SFTTrainer.__init__).parameters)
+_tr_kwargs = dict(model=model, args=sft_args, train_dataset=ds)
+if "processing_class" in _tr_ok:
+    _tr_kwargs["processing_class"] = tokenizer
+elif "tokenizer" in _tr_ok:
+    _tr_kwargs["tokenizer"] = tokenizer
+_tr_kwargs = {k: v for k, v in _tr_kwargs.items() if k in _tr_ok}
+trainer = SFTTrainer(**_tr_kwargs)
 
 g = torch.cuda.get_device_properties(0)
 print(f"[GPU] {g.name}  {g.total_memory/1e9:.1f} GB")

@@ -231,6 +231,7 @@ class TimeBudgetCallback:
 
 # ========== 5. Train ==========
 log("[STEP 5] Starting resumed SFT training...")
+import inspect
 from trl import SFTTrainer, SFTConfig
 
 g = torch.cuda.get_device_properties(0)
@@ -238,34 +239,47 @@ log(f"[GPU] {g.name}  {g.total_memory/1e9:.1f} GB")
 
 time_cb = TimeBudgetCallback()
 
-trainer = SFTTrainer(
-    model=model,
-    tokenizer=tokenizer,
-    train_dataset=ds,
-    callbacks=[time_cb],
-    args=SFTConfig(
-        dataset_text_field="text",
-        max_seq_length=MAX_SEQ,
-        packing=False,
-        dataset_num_proc=2,
-        per_device_train_batch_size=2,
-        gradient_accumulation_steps=4,
-        warmup_steps=20,
-        num_train_epochs=EPOCHS,
-        learning_rate=1e-4,     # lower LR for resume
-        logging_steps=10,
-        optim="adamw_8bit",
-        weight_decay=0.01,
-        lr_scheduler_type="cosine",
-        seed=3407,
-        output_dir=OUT_DIR,
-        save_strategy="steps",
-        save_steps=200,
-        fp16=not torch.cuda.is_bf16_supported(),
-        bf16=torch.cuda.is_bf16_supported(),
-        report_to="none",
-    ),
+# --- version-robust SFTConfig (max_seq_length -> max_length on new TRL) ------
+# Newer TRL (Transformers 5.x) renamed SFTConfig's max_seq_length -> max_length
+# and dropped some old kwargs. Build all we want, keep ONLY what THIS version accepts.
+_sft_ok = set(inspect.signature(SFTConfig.__init__).parameters)
+_sft_kwargs = dict(
+    dataset_text_field="text",
+    packing=False,
+    dataset_num_proc=2,
+    per_device_train_batch_size=2,
+    gradient_accumulation_steps=4,
+    warmup_steps=20,
+    num_train_epochs=EPOCHS,
+    learning_rate=1e-4,     # lower LR for resume
+    logging_steps=10,
+    optim="adamw_8bit",
+    weight_decay=0.01,
+    lr_scheduler_type="cosine",
+    seed=3407,
+    output_dir=OUT_DIR,
+    save_strategy="steps",
+    save_steps=200,
+    fp16=not torch.cuda.is_bf16_supported(),
+    bf16=torch.cuda.is_bf16_supported(),
+    report_to="none",
 )
+if "max_seq_length" in _sft_ok:
+    _sft_kwargs["max_seq_length"] = MAX_SEQ
+elif "max_length" in _sft_ok:
+    _sft_kwargs["max_length"] = MAX_SEQ
+_sft_kwargs = {k: v for k, v in _sft_kwargs.items() if k in _sft_ok}
+sft_args = SFTConfig(**_sft_kwargs)
+
+# --- version-robust SFTTrainer (tokenizer -> processing_class on new TRL) ----
+_tr_ok = set(inspect.signature(SFTTrainer.__init__).parameters)
+_tr_kwargs = dict(model=model, args=sft_args, train_dataset=ds, callbacks=[time_cb])
+if "processing_class" in _tr_ok:
+    _tr_kwargs["processing_class"] = tokenizer
+elif "tokenizer" in _tr_ok:
+    _tr_kwargs["tokenizer"] = tokenizer
+_tr_kwargs = {k: v for k, v in _tr_kwargs.items() if k in _tr_ok}
+trainer = SFTTrainer(**_tr_kwargs)
 trainer.train()
 log("[OK] Training done.")
 
