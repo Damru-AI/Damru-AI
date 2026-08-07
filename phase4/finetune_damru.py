@@ -14,10 +14,8 @@ Key correctness pieces (the stuff people forget):
   * 1-2 epochs (avoid over-fit / catastrophic forgetting)
 
 Designed for Colab / Kaggle T4 (NOT GitHub Actions -- no GPU there).
-
-Install:
-  pip install -U "transformers>=4.44" "trl>=0.9" peft accelerate \
-      bitsandbytes datasets
+Deps auto-install on first run (Internet ON); no separate install cell needed.
+Manual install (optional): pip install -U transformers>=4.44 trl>=0.9 peft accelerate bitsandbytes datasets
 
 Env / config (all overridable):
   HF_TOKEN, BASE_MODEL, TRAIN_REPO, OUT_REPO,
@@ -48,6 +46,27 @@ RUN_DPO = (os.environ.get("RUN_DPO", "0") == "1")
 DPO_REPO = os.environ.get("DPO_REPO", "Damaru-ai/damru-dpo")
 
 
+def _ensure_deps():
+    """Fresh Kaggle/Colab kernels may miss trl/peft/bitsandbytes -- auto-install
+    the missing ones (Internet must be ON). No-op when the stack is present."""
+    import importlib.util
+    need = [("transformers", "transformers>=4.44"), ("trl", "trl>=0.9"),
+            ("peft", "peft"), ("accelerate", "accelerate"),
+            ("bitsandbytes", "bitsandbytes"), ("datasets", "datasets"),
+            ("sentencepiece", "sentencepiece"), ("google.protobuf", "protobuf")]
+    missing = [pip for mod, pip in need if importlib.util.find_spec(mod) is None]
+    if not missing:
+        return
+    import subprocess, sys
+    print(">> installing missing training deps:", missing, "-- one-time, ~1-3 min", flush=True)
+    rc = subprocess.run([sys.executable, "-m", "pip", "install", "-q", *missing]).returncode
+    if rc != 0:
+        print(">> AUTO-INSTALL failed. Kaggle: Settings > Internet = ON, phir dobara run karo;", flush=True)
+        print(">>   ya pehle: pip install -U transformers>=4.44 trl>=0.9 peft accelerate bitsandbytes datasets", flush=True)
+        raise RuntimeError("dependency install failed -- enable Kaggle Internet and re-run")
+    print(">> deps installed OK", flush=True)
+
+
 def load_splits(tok):
     from datasets import load_dataset
     train = load_dataset(CFG["train_repo"], data_dir="train", split="train")
@@ -76,12 +95,12 @@ def load_splits(tok):
 
 
 def sft():
+    import inspect
     import torch
     from transformers import (AutoModelForCausalLM, AutoTokenizer,
                               BitsAndBytesConfig)
     from peft import LoraConfig, prepare_model_for_kbit_training
     from trl import SFTTrainer, SFTConfig
-    from trl import DataCollatorForCompletionOnlyLM
 
     tok = AutoTokenizer.from_pretrained(CFG["base_model"],
                                         trust_remote_code=True)
@@ -107,12 +126,29 @@ def sft():
     print("train rows:", len(train), "| val rows:",
           (len(val) if val is not None else 0))
 
-    # COMPLETION-ONLY: mask everything up to the assistant turn so loss is
-    # computed on the answer only (ChatML assistant marker).
+    # COMPLETION-ONLY masking (loss on the answer only). trl's collator moved/
+    # changed across versions, so probe it; if unavailable, fall back to the
+    # built-in assistant-only loss, else plain LM loss (still trains, no crash).
     resp_template = "<|im_start|>assistant\n"
-    collator = DataCollatorForCompletionOnlyLM(resp_template, tokenizer=tok)
+    collator = None
+    try:
+        from trl import DataCollatorForCompletionOnlyLM
+        _dc_ok = set(inspect.signature(DataCollatorForCompletionOnlyLM.__init__).parameters)
+        _dc_tok = "tokenizer" if "tokenizer" in _dc_ok else (
+            "processing_class" if "processing_class" in _dc_ok else None)
+        if _dc_tok:
+            collator = DataCollatorForCompletionOnlyLM(resp_template, **{_dc_tok: tok})
+        else:
+            collator = DataCollatorForCompletionOnlyLM(resp_template)
+    except Exception as e:
+        print("completion-only collator unavailable:", str(e)[:120], flush=True)
+        collator = None
 
-    args = SFTConfig(
+    # --- version-robust SFTConfig ------------------------------------------
+    # New TRL (Transformers 5.x) renamed max_seq_length -> max_length and drops
+    # some old kwargs. Build all we want, keep only what THIS version accepts.
+    _sft_ok = set(inspect.signature(SFTConfig.__init__).parameters)
+    _sft_kwargs = dict(
         output_dir="damru-tutor-lora",
         num_train_epochs=CFG["epochs"],
         per_device_train_batch_size=CFG["batch"],
@@ -126,8 +162,7 @@ def sft():
         eval_steps=CFG["eval_steps"],
         eval_strategy=("steps" if val is not None else "no"),
         bf16=False, fp16=True,
-        max_seq_length=CFG["max_seq"],
-        packing=False,                 # packing off so completion-mask works
+        packing=False,
         gradient_checkpointing=True,
         report_to="none",
         dataset_text_field="text",
@@ -135,10 +170,32 @@ def sft():
         hub_model_id=CFG["out_repo"],
         hub_token=HF_TOKEN or None,
     )
-    trainer = SFTTrainer(
-        model=model, args=args, train_dataset=train,
-        eval_dataset=val, peft_config=lora,
-        data_collator=collator, processing_class=tok)
+    if "max_seq_length" in _sft_ok:
+        _sft_kwargs["max_seq_length"] = CFG["max_seq"]
+    elif "max_length" in _sft_ok:
+        _sft_kwargs["max_length"] = CFG["max_seq"]
+    if "eval_strategy" not in _sft_ok and "evaluation_strategy" in _sft_ok:
+        _sft_kwargs["evaluation_strategy"] = _sft_kwargs.pop("eval_strategy")
+    if collator is None:
+        for _k in ("assistant_only_loss", "completion_only_loss"):
+            if _k in _sft_ok:
+                _sft_kwargs[_k] = True
+                break
+    _sft_kwargs = {k: v for k, v in _sft_kwargs.items() if k in _sft_ok}
+    args = SFTConfig(**_sft_kwargs)
+
+    # --- version-robust SFTTrainer -----------------------------------------
+    _tr_ok = set(inspect.signature(SFTTrainer.__init__).parameters)
+    _tr_kwargs = dict(model=model, args=args, train_dataset=train,
+                      eval_dataset=val, peft_config=lora)
+    if "processing_class" in _tr_ok:
+        _tr_kwargs["processing_class"] = tok
+    elif "tokenizer" in _tr_ok:
+        _tr_kwargs["tokenizer"] = tok
+    if collator is not None and "data_collator" in _tr_ok:
+        _tr_kwargs["data_collator"] = collator
+    _tr_kwargs = {k: v for k, v in _tr_kwargs.items() if k in _tr_ok}
+    trainer = SFTTrainer(**_tr_kwargs)
     trainer.train()
     trainer.save_model("damru-tutor-lora")
     if HF_TOKEN:
@@ -149,6 +206,7 @@ def sft():
 
 def dpo(tok):
     """Optional preference-alignment stage on damru-dpo (chosen/rejected)."""
+    import inspect
     import torch
     from datasets import load_dataset
     from transformers import AutoModelForCausalLM
@@ -161,16 +219,25 @@ def dpo(tok):
     lora = LoraConfig(r=CFG["lora_r"], lora_alpha=CFG["lora_alpha"],
                       lora_dropout=CFG["lora_dropout"], bias="none",
                       task_type="CAUSAL_LM")
-    args = DPOConfig(output_dir="damru-tutor-dpo", beta=0.1,
-                     per_device_train_batch_size=1,
-                     gradient_accumulation_steps=8,
-                     learning_rate=5e-6, num_train_epochs=1,
-                     logging_steps=20, fp16=True, report_to="none",
-                     push_to_hub=bool(HF_TOKEN),
-                     hub_model_id=CFG["out_repo"] + "-dpo",
-                     hub_token=HF_TOKEN or None)
-    trainer = DPOTrainer(model=model, args=args, train_dataset=ds,
-                         peft_config=lora, processing_class=tok)
+    _cfg_ok = set(inspect.signature(DPOConfig.__init__).parameters)
+    _cfg_kwargs = dict(output_dir="damru-tutor-dpo", beta=0.1,
+                       per_device_train_batch_size=1,
+                       gradient_accumulation_steps=8,
+                       learning_rate=5e-6, num_train_epochs=1,
+                       logging_steps=20, fp16=True, report_to="none",
+                       push_to_hub=bool(HF_TOKEN),
+                       hub_model_id=CFG["out_repo"] + "-dpo",
+                       hub_token=HF_TOKEN or None)
+    _cfg_kwargs = {k: v for k, v in _cfg_kwargs.items() if k in _cfg_ok}
+    args = DPOConfig(**_cfg_kwargs)
+    _tr_ok = set(inspect.signature(DPOTrainer.__init__).parameters)
+    _tr_kwargs = dict(model=model, args=args, train_dataset=ds, peft_config=lora)
+    if "processing_class" in _tr_ok:
+        _tr_kwargs["processing_class"] = tok
+    elif "tokenizer" in _tr_ok:
+        _tr_kwargs["tokenizer"] = tok
+    _tr_kwargs = {k: v for k, v in _tr_kwargs.items() if k in _tr_ok}
+    trainer = DPOTrainer(**_tr_kwargs)
     trainer.train()
     if HF_TOKEN:
         trainer.push_to_hub()
@@ -179,6 +246,7 @@ def dpo(tok):
 
 if __name__ == "__main__":
     print("CONFIG:", CFG, "| RUN_DPO:", RUN_DPO)
+    _ensure_deps()
     t = sft()
     if RUN_DPO:
         dpo(t)

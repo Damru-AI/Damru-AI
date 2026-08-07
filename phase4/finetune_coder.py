@@ -14,7 +14,8 @@ Two stages
    from DPO_REPO so the model prefers code that actually passed tests.
 
 Runs on a free Colab/Kaggle T4 (Unsloth 4-bit). Mobile-friendly: just set the
-secrets and run. Produces a LoRA adapter you can merge or load at inference.
+secrets and run. Deps auto-install on first run (Internet ON). Produces a LoRA
+adapter you can merge or load at inference.
 
 Env / config
 ------------
@@ -44,6 +45,28 @@ CODE_INTENTS = {"verified_coding", "debug_fix", "coding", "coding_reasoning",
                 "competitive_coding", "tool_use", "agent_planning"}
 
 
+def _ensure_deps():
+    """Fresh Kaggle/Colab kernels don't ship unsloth/trl -- auto-install if missing.
+    Internet must be ON. No-op when the stack is already present."""
+    import importlib.util
+    if all(importlib.util.find_spec(m) is not None
+           for m in ("unsloth", "trl", "peft", "bitsandbytes", "datasets")):
+        return
+    import subprocess, sys
+    print(">> installing training stack (unsloth/trl/peft/...) -- one-time, ~2-4 min", flush=True)
+    cmds = [
+        [sys.executable, "-m", "pip", "install", "-q", "-U", "unsloth"],
+        [sys.executable, "-m", "pip", "install", "-q",
+         "trl>=0.9", "peft", "accelerate", "bitsandbytes", "datasets",
+         "sentencepiece", "protobuf"],
+    ]
+    if any(subprocess.run(c).returncode != 0 for c in cmds):
+        print(">> AUTO-INSTALL failed. Kaggle: Settings > Internet = ON, phir dobara run karo;", flush=True)
+        print(">>   ya pehle: pip install -U unsloth 'trl>=0.9' peft accelerate bitsandbytes datasets", flush=True)
+        raise RuntimeError("dependency install failed -- enable Kaggle Internet and re-run")
+    print(">> training stack installed OK", flush=True)
+
+
 def _load_sft():
     from datasets import load_dataset
     ds = load_dataset(DATA_REPO, split="train", streaming=True)
@@ -63,6 +86,8 @@ def _load_sft():
 
 def main():
     assert HF_TOKEN, "HF_TOKEN required"
+    _ensure_deps()
+    import inspect
     from unsloth import FastLanguageModel
     import torch
     from datasets import Dataset
@@ -83,15 +108,31 @@ def main():
         return {"text": tok.apply_chat_template(msgs, tokenize=False)}
 
     sft = Dataset.from_list(_load_sft()).map(fmt)
-    SFTTrainer(
-        model=model, tokenizer=tok, train_dataset=sft,
-        args=SFTConfig(
-            per_device_train_batch_size=2, gradient_accumulation_steps=8,
-            warmup_steps=20, num_train_epochs=EPOCHS, learning_rate=2e-4,
-            logging_steps=20, optim="adamw_8bit", weight_decay=0.01,
-            lr_scheduler_type="cosine", seed=3407, output_dir="out_sft",
-            dataset_text_field="text", max_seq_length=MAXLEN),
-    ).train()
+
+    # --- version-robust SFTConfig (max_seq_length -> max_length on new TRL) --
+    _sft_ok = set(inspect.signature(SFTConfig.__init__).parameters)
+    _sft_kwargs = dict(
+        per_device_train_batch_size=2, gradient_accumulation_steps=8,
+        warmup_steps=20, num_train_epochs=EPOCHS, learning_rate=2e-4,
+        logging_steps=20, optim="adamw_8bit", weight_decay=0.01,
+        lr_scheduler_type="cosine", seed=3407, output_dir="out_sft",
+        dataset_text_field="text")
+    if "max_seq_length" in _sft_ok:
+        _sft_kwargs["max_seq_length"] = MAXLEN
+    elif "max_length" in _sft_ok:
+        _sft_kwargs["max_length"] = MAXLEN
+    _sft_kwargs = {k: v for k, v in _sft_kwargs.items() if k in _sft_ok}
+    _sft_args = SFTConfig(**_sft_kwargs)
+
+    # --- version-robust SFTTrainer (tokenizer -> processing_class on new TRL) --
+    _tr_ok = set(inspect.signature(SFTTrainer.__init__).parameters)
+    _tr_kwargs = dict(model=model, train_dataset=sft, args=_sft_args)
+    if "processing_class" in _tr_ok:
+        _tr_kwargs["processing_class"] = tok
+    elif "tokenizer" in _tr_ok:
+        _tr_kwargs["tokenizer"] = tok
+    _tr_kwargs = {k: v for k, v in _tr_kwargs.items() if k in _tr_ok}
+    SFTTrainer(**_tr_kwargs).train()
     print("SFT done.", flush=True)
 
     if DO_DPO:
@@ -103,16 +144,25 @@ def main():
                 "prompt": e["prompt"], "chosen": e["chosen"],
                 "rejected": e["rejected"]})
             FastLanguageModel.for_training(model)
-            DPOTrainer(
-                model=model, ref_model=None, tokenizer=tok, train_dataset=dpo,
-                args=DPOConfig(
-                    per_device_train_batch_size=1,
-                    gradient_accumulation_steps=8, warmup_steps=10,
-                    num_train_epochs=1, learning_rate=5e-6, beta=0.1,
-                    logging_steps=10, optim="adamw_8bit", seed=3407,
-                    output_dir="out_dpo", max_length=MAXLEN,
-                    max_prompt_length=MAXLEN // 2),
-            ).train()
+            _dcfg_ok = set(inspect.signature(DPOConfig.__init__).parameters)
+            _dcfg_kwargs = dict(
+                per_device_train_batch_size=1,
+                gradient_accumulation_steps=8, warmup_steps=10,
+                num_train_epochs=1, learning_rate=5e-6, beta=0.1,
+                logging_steps=10, optim="adamw_8bit", seed=3407,
+                output_dir="out_dpo", max_length=MAXLEN,
+                max_prompt_length=MAXLEN // 2)
+            _dcfg_kwargs = {k: v for k, v in _dcfg_kwargs.items() if k in _dcfg_ok}
+            _dpo_args = DPOConfig(**_dcfg_kwargs)
+            _dtr_ok = set(inspect.signature(DPOTrainer.__init__).parameters)
+            _dtr_kwargs = dict(model=model, ref_model=None, train_dataset=dpo,
+                               args=_dpo_args)
+            if "processing_class" in _dtr_ok:
+                _dtr_kwargs["processing_class"] = tok
+            elif "tokenizer" in _dtr_ok:
+                _dtr_kwargs["tokenizer"] = tok
+            _dtr_kwargs = {k: v for k, v in _dtr_kwargs.items() if k in _dtr_ok}
+            DPOTrainer(**_dtr_kwargs).train()
             print("DPO done.", flush=True)
         except Exception as e:
             print("DPO skipped:", str(e)[:200], flush=True)
