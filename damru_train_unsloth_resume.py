@@ -268,6 +268,13 @@ if "max_seq_length" in _sft_ok:
     _sft_kwargs["max_seq_length"] = MAX_SEQ
 elif "max_length" in _sft_ok:
     _sft_kwargs["max_length"] = MAX_SEQ
+# newer TRL SFTConfig ships a placeholder eos_token ("<EOS_TOKEN>") that is NOT a real
+# Qwen token; SFTTrainer validates it vs the vocab and crashes. Pin eos/pad to the
+# tokenizer's ACTUAL specials (Qwen2.5 -> eos <|im_end|>) when the kwargs are accepted.
+if "eos_token" in _sft_ok and getattr(tokenizer, "eos_token", None):
+    _sft_kwargs["eos_token"] = tokenizer.eos_token
+if "pad_token" in _sft_ok and (getattr(tokenizer, "pad_token", None) or getattr(tokenizer, "eos_token", None)):
+    _sft_kwargs["pad_token"] = tokenizer.pad_token or tokenizer.eos_token
 _sft_kwargs = {k: v for k, v in _sft_kwargs.items() if k in _sft_ok}
 sft_args = SFTConfig(**_sft_kwargs)
 
