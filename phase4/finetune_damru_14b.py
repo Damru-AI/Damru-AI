@@ -49,6 +49,28 @@ SKIP_TRAIN = os.environ.get("SKIP_TRAIN", "0") == "1"
 SEED = int(os.environ.get("SEED") or "3407")
 
 
+def _ensure_deps():
+    """Fresh Kaggle/Colab kernels don't ship unsloth/trl -- auto-install if missing.
+    Internet must be ON. No-op when the stack is already present."""
+    import importlib.util
+    if all(importlib.util.find_spec(m) is not None
+           for m in ("unsloth", "trl", "peft", "bitsandbytes", "datasets")):
+        return
+    import subprocess, sys
+    print(">> installing training stack (unsloth/trl/peft/...) -- one-time, ~2-4 min", flush=True)
+    cmds = [
+        [sys.executable, "-m", "pip", "install", "-q", "-U", "unsloth"],
+        [sys.executable, "-m", "pip", "install", "-q",
+         "trl>=0.9", "peft", "accelerate", "bitsandbytes", "datasets",
+         "sentencepiece", "protobuf"],
+    ]
+    if any(subprocess.run(c).returncode != 0 for c in cmds):
+        print(">> AUTO-INSTALL failed. Kaggle: Settings > Internet = ON, phir dobara run karo;", flush=True)
+        print(">>   ya pehle: pip install -U unsloth 'trl>=0.9' peft accelerate bitsandbytes datasets", flush=True)
+        raise RuntimeError("dependency install failed -- enable Kaggle Internet and re-run")
+    print(">> training stack installed OK", flush=True)
+
+
 def _auto_vram():
     """Pick safe seq/batch for the detected GPU (T4 16GB -> 2048/2, smaller -> 1024/1)."""
     try:
@@ -220,6 +242,7 @@ def export_gguf(model, tok):
 
 def main():
     print("CONFIG:", CFG, "| SKIP_TRAIN:", SKIP_TRAIN, flush=True)
+    _ensure_deps()
     _auto_vram()
     if SKIP_TRAIN:
         model, tok = load_trained_for_export()
