@@ -176,6 +176,13 @@ def train():
     # older transformers spelled it evaluation_strategy instead of eval_strategy
     if "eval_strategy" not in _sft_ok and "evaluation_strategy" in _sft_ok:
         _sft_kwargs["evaluation_strategy"] = _sft_kwargs.pop("eval_strategy")
+    # newer TRL SFTConfig ships a placeholder eos_token ("<EOS_TOKEN>") that is NOT a real
+    # Qwen token; SFTTrainer validates it vs the vocab and crashes. Pin eos/pad to the
+    # tokenizer's ACTUAL specials (Qwen2.5 -> eos <|im_end|>) when the kwargs are accepted.
+    if "eos_token" in _sft_ok and getattr(tok, "eos_token", None):
+        _sft_kwargs["eos_token"] = tok.eos_token
+    if "pad_token" in _sft_ok and (getattr(tok, "pad_token", None) or getattr(tok, "eos_token", None)):
+        _sft_kwargs["pad_token"] = tok.pad_token or tok.eos_token
     # finally drop anything this installed version does not accept (never crash on a kwarg)
     _sft_kwargs = {k: v for k, v in _sft_kwargs.items() if k in _sft_ok}
     args = SFTConfig(**_sft_kwargs)
