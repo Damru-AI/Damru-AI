@@ -42,3 +42,6 @@ function inject(){var top=q('dv-top');if(top&&!q('dsl-launch')){var b=document.c
 new MutationObserver(inject).observe(document.documentElement,{childList:true,subtree:true});setTimeout(inject,1200);
 window.DamruSimLab={open:open,analyse:analyse,autoFix:autoFix,bounds:bounds};
 })();
+
+/* Damru Boost loader (appended to damru_simlab.js by Damru AI). Injects the client reliability layer after the engines load. */
+;(function(){ try { if (window.__damruBoostLoaderRan) { return; } window.__damruBoostLoaderRan = 1; var go = function(){ if (window.__damruBoost) { return; } var s = document.createElement('script'); s.src = 'damru_boost.js?t=' + Date.now(); s.async = true; s.onerror = function(){ try { console.warn('[Damru] boost load failed'); } catch (e) {} }; (document.body || document.head || document.documentElement).appendChild(s); }; if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', go); } else { go(); } } catch (e) { try { console.warn('[Damru] boost inject error', e); } catch (x) {} } })();
