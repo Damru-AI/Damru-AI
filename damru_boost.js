@@ -114,6 +114,7 @@ function boot(){
   warmOnLoad();
   installWithRetry(20);
   injectModule('damru_real3d.js');
+  injectModule('damru_live.js');
 }
 
 if (document.readyState === 'loading') {
