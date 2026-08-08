@@ -97,9 +97,23 @@ function installWithRetry(n){
   setTimeout(function(){ installWithRetry(n - 1); }, 400);
 }
 
+var _mods = {};
+function injectModule(src){
+  try {
+    if (_mods[src]) { return; }
+    _mods[src] = 1;
+    var sc = document.createElement('script');
+    sc.src = src + '?t=' + Date.now();
+    sc.async = true;
+    sc.onerror = function(){ log('module load failed:', src); };
+    (document.body || document.head || document.documentElement).appendChild(sc);
+  } catch (e) { log('injectModule error', e); }
+}
+
 function boot(){
   warmOnLoad();
   installWithRetry(20);
+  injectModule('damru_real3d.js');
 }
 
 if (document.readyState === 'loading') {
