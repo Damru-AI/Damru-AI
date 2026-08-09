@@ -3,5 +3,10 @@
     "subject": "human_behaviour",
     "records": 40,
     "approx_lines": 80
+  },
+  "2026-08-09": {
+    "subject": "psychology",
+    "records": 40,
+    "approx_lines": 80
   }
 }
