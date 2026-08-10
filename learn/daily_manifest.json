@@ -8,5 +8,10 @@
     "subject": "psychology",
     "records": 40,
     "approx_lines": 80
+  },
+  "2026-08-10": {
+    "subject": "conversation",
+    "records": 40,
+    "approx_lines": 80
   }
 }
