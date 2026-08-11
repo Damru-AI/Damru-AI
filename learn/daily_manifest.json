@@ -13,5 +13,10 @@
     "subject": "conversation",
     "records": 40,
     "approx_lines": 80
+  },
+  "2026-08-11": {
+    "subject": "coding",
+    "records": 40,
+    "approx_lines": 80
   }
 }
