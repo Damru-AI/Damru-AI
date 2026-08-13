@@ -23,5 +23,10 @@
     "subject": "mathematics",
     "records": 40,
     "approx_lines": 80
+  },
+  "2026-08-13": {
+    "subject": "science",
+    "records": 40,
+    "approx_lines": 80
   }
 }
