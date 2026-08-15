@@ -33,5 +33,11 @@
     "subject": "india_gk",
     "records": 40,
     "approx_lines": 80
+  },
+  "2026-08-15": {
+    "subject": "life_skills",
+    "records": 40,
+    "approx_lines": 160,
+    "timestamp": "2026-08-15T01:41:00.408274+00:00"
   }
 }
