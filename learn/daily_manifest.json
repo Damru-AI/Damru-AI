@@ -57,5 +57,11 @@
     "records": 40,
     "approx_lines": 160,
     "timestamp": "2026-08-18T19:24:12.091820+00:00"
+  },
+  "2026-08-19": {
+    "subject": "psychology",
+    "records": 40,
+    "approx_lines": 160,
+    "timestamp": "2026-08-19T19:19:24.134780+00:00"
   }
 }
