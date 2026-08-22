@@ -75,5 +75,11 @@
     "records": 40,
     "approx_lines": 160,
     "timestamp": "2026-08-21T19:23:46.642874+00:00"
+  },
+  "2026-08-22": {
+    "subject": "mathematics",
+    "records": 40,
+    "approx_lines": 160,
+    "timestamp": "2026-08-22T19:14:26.198355+00:00"
   }
 }
