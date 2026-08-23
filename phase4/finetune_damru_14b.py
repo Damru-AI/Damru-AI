@@ -104,6 +104,50 @@ def _ensure_deps():
     print(">> training stack installed OK", flush=True)
 
 
+def _harden_datasets_fingerprint():
+    """Fix TypeError: cannot pickle 'ConfigModuleInstance' object during datasets
+    .map(). torch 2.x + Unsloth make the tokenizer's object graph reference a torch
+    config (torch._dynamo/_inductor) that `dill` cannot pickle; HF `datasets`
+    dill-hashes every .map() transform for its cache fingerprint, and TRL's SFTTrainer
+    tokenizes internally with that tokenizer in-closure -> the hash raises and kills
+    the run (right after the eos fix let it get this far). Make the Hasher
+    exception-proof: on any hashing failure use a random fingerprint (== do NOT reuse
+    cache -> recompute; DATA and training logic are UNCHANGED)."""
+    try:
+        import uuid
+        from datasets import fingerprint as _fp
+        H = _fp.Hasher
+        if getattr(H, "_damru_hardened", False):
+            return
+        try:
+            _orig_hash = H.hash.__func__  # unwrap classmethod
+            def _safe_hash(cls, value):
+                try:
+                    return _orig_hash(cls, value)
+                except Exception:
+                    return uuid.uuid4().hex
+            H.hash = classmethod(_safe_hash)
+        except Exception:
+            pass
+        try:
+            _orig_update = H.update
+            def _safe_update(self, value):
+                try:
+                    return _orig_update(self, value)
+                except Exception:
+                    try:
+                        return _orig_update(self, uuid.uuid4().hex)
+                    except Exception:
+                        return None
+            H.update = _safe_update
+        except Exception:
+            pass
+        H._damru_hardened = True
+        print("[fix] datasets fingerprint hardened (ConfigModuleInstance-safe)", flush=True)
+    except Exception as _e:
+        print("[fix] datasets fingerprint harden skipped:", str(_e)[:120], flush=True)
+
+
 def _auto_vram():
     """Pick safe seq/batch for the detected GPU (T4 16GB -> 2048/2, smaller -> 1024/1)."""
     try:
@@ -210,6 +254,7 @@ def train():
         bf16=is_bfloat16_supported(), fp16=not is_bfloat16_supported(),
         packing=False,
         dataset_text_field="text",
+        dataset_num_proc=1,
         eval_strategy=("steps" if val_ds is not None else "no"),
         eval_steps=int(os.environ.get("EVAL_STEPS") or "500"),
         save_strategy="steps",
@@ -370,6 +415,7 @@ def export_gguf(model, tok):
 def main():
     print("CONFIG:", CFG, "| SKIP_TRAIN:", SKIP_TRAIN, "| TIME_BUDGET_SEC:", TIME_BUDGET_SEC, flush=True)
     _ensure_deps()
+    _harden_datasets_fingerprint()
     _auto_vram()
     if SKIP_TRAIN:
         model, tok = load_trained_for_export()
