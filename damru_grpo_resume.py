@@ -113,6 +113,37 @@ def reward_format(text):
     return 0.2 if ("####" in text or _BOXED.search(text)) else 0.0
 
 
+def _ensure_deps():
+    """Fresh Kaggle/Colab kernels don't always ship unsloth/trl/sympy -- auto-install
+    anything missing (Internet must be ON). No-op when the stack is already present.
+    sympy is re-imported after install so the verifiable reward stays enabled."""
+    import importlib.util
+    need = [m for m in ("unsloth", "trl", "peft", "bitsandbytes", "datasets", "sympy")
+            if importlib.util.find_spec(m) is None]
+    if need:
+        import subprocess
+        log(">> installing GRPO stack (missing: %s) -- one-time, ~2-4 min" % ",".join(need))
+        cmds = [
+            [sys.executable, "-m", "pip", "install", "-q", "-U", "unsloth"],
+            [sys.executable, "-m", "pip", "install", "-q",
+             "trl>=0.9", "peft", "accelerate", "bitsandbytes", "datasets",
+             "sentencepiece", "protobuf", "sympy"],
+        ]
+        if any(subprocess.run(c).returncode != 0 for c in cmds):
+            log(">> AUTO-INSTALL failed -- Kaggle: Settings > Internet = ON, then re-run")
+            raise RuntimeError("dependency install failed -- enable Kaggle Internet and re-run")
+        log(">> GRPO stack installed OK")
+    global _HAS_SYMPY, simplify, parse_expr
+    if not _HAS_SYMPY:
+        try:
+            from sympy import simplify as _sm
+            from sympy.parsing.sympy_parser import parse_expr as _pe
+            simplify, parse_expr, _HAS_SYMPY = _sm, _pe, True
+            log(">> sympy verifiable reward enabled")
+        except Exception:
+            pass
+
+
 # ---- TIME BUDGET CALLBACK ----------------------------------------------------
 class TimeBudgetCallback:
     def __init__(self, budget_sec, lock, model_ref, tok_ref, out_lora, token):
@@ -209,6 +240,7 @@ def load_prompts(dataset, token, max_prompts):
 
 # ---- main --------------------------------------------------------------------
 def main():
+    _ensure_deps()
     token = load_hf_token()
     if not token:
         log("[FATAL] no HF_TOKEN")
