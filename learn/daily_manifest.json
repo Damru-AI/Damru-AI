@@ -81,5 +81,11 @@
     "records": 40,
     "approx_lines": 160,
     "timestamp": "2026-08-22T19:14:26.198355+00:00"
+  },
+  "2026-08-23": {
+    "subject": "science",
+    "records": 115,
+    "approx_lines": 460,
+    "timestamp": "2026-08-23T19:13:42.643790+00:00"
   }
 }
