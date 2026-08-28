@@ -105,5 +105,11 @@
     "records": 115,
     "approx_lines": 460,
     "timestamp": "2026-08-26T20:43:38.731195+00:00"
+  },
+  "2026-08-28": {
+    "subject": "human_behaviour",
+    "records": 115,
+    "approx_lines": 460,
+    "timestamp": "2026-08-28T02:32:50.372914+00:00"
   }
 }
