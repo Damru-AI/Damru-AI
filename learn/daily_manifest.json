@@ -495,5 +495,11 @@
     "records": 115,
     "approx_lines": 460,
     "timestamp": "2026-11-03T23:50:20.373159+00:00"
+  },
+  "2026-11-04": {
+    "subject": "language",
+    "records": 115,
+    "approx_lines": 460,
+    "timestamp": "2026-11-05T00:08:01.529933+00:00"
   }
 }
