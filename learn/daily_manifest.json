@@ -501,5 +501,11 @@
     "records": 115,
     "approx_lines": 460,
     "timestamp": "2026-11-05T00:08:01.529933+00:00"
+  },
+  "2026-11-05": {
+    "subject": "reasoning",
+    "records": 115,
+    "approx_lines": 460,
+    "timestamp": "2026-11-06T00:03:20.663528+00:00"
   }
 }
