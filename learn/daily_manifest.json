@@ -579,5 +579,11 @@
     "records": 115,
     "approx_lines": 460,
     "timestamp": "2026-11-20T01:03:12.746491+00:00"
+  },
+  "2026-11-21": {
+    "subject": "science",
+    "records": 115,
+    "approx_lines": 460,
+    "timestamp": "2026-11-21T00:22:23.154273+00:00"
   }
 }
